@@ -156,6 +156,25 @@ static void jdbc_append_function_name(Oid funcid, deparse_expr_cxt *context);
 static const char *jdbc_quote_identifier(const char *ident,
 										 char *q_char,
 										 bool quote_all_identifiers);
+static bool jdbc_func_exist_in_list(char *funcname, const char **funclist);
+
+/*
+ * JdbcSupportedBuiltinAggFunction
+ * List of supported builtin aggregate functions for Jdbc
+ */
+static const char *JdbcSupportedBuiltinAggFunction[] = {
+	"sum",
+	"avg",
+	"max",
+	"min",
+	"count",
+	"stddev",
+	"stddev_pop",
+	"stddev_samp",
+	"var_pop",
+	"var_samp",
+	"variance",
+	NULL};
 
 /*
  * Deparse given targetlist and append it to context->buf.
@@ -495,6 +514,10 @@ jdbc_foreign_expr_walker(Node *node,
 			{
 				FuncExpr   *fe = (FuncExpr *) node;
 
+				/* Does not support push down explicit cast function */
+				if (fe->funcformat == COERCE_EXPLICIT_CAST)
+					return false;
+
 				/*
 				 * If function used by the expression is not built-in, it
 				 * can't be sent to remote because it might have incompatible
@@ -722,9 +745,6 @@ jdbc_foreign_expr_walker(Node *node,
 				Aggref	   *agg = (Aggref *) node;
 				ListCell   *lc;
 				char	   *opername = NULL;
-				bool		is_math_func = false;
-				bool		is_selector_func = false;
-				bool		is_count_func = false;
 				HeapTuple	tuple;
 
 				/* get function name */
@@ -736,21 +756,8 @@ jdbc_foreign_expr_walker(Node *node,
 				opername = pstrdup(((Form_pg_proc) GETSTRUCT(tuple))->proname.data);
 				ReleaseSysCache(tuple);
 
-				/* these function can be passed to JDBC */
-				if (strcmp(opername, "sum") == 0 ||
-					strcmp(opername, "avg") == 0 ||
-					strcmp(opername, "stddev") == 0 ||
-					strcmp(opername, "variance") == 0)
-					is_math_func = true;
-
-				if (strcmp(opername, "max") == 0 ||
-					strcmp(opername, "min") == 0)
-					is_selector_func = true;
-
-				if (strcmp(opername, "count") == 0)
-					is_count_func = true;
-
-				if (!(is_math_func || is_selector_func || is_count_func))
+				/* Only function exist in JdbcSupportedBuiltinAggFunction can be passed to JDBC */
+				if (!jdbc_func_exist_in_list(opername, JdbcSupportedBuiltinAggFunction))
 					return false;
 
 				/* Not safe to pushdown when not in grouping context */
@@ -759,6 +766,15 @@ jdbc_foreign_expr_walker(Node *node,
 
 				/* Only non-split aggregates are pushable. */
 				if (agg->aggsplit != AGGSPLIT_SIMPLE)
+					return false;
+
+				/*
+				 * Does not push down DISTINCT inside aggregate function
+				 * because of undefined behavior of the GridDB JDBC driver.
+				 * TODO: We may hanlde DISTINCT in future with new release
+				 * of GridDB JDBC driver.
+				 */
+				if (agg->aggdistinct != NIL)
 					return false;
 
 				/*
@@ -776,41 +792,9 @@ jdbc_foreign_expr_walker(Node *node,
 					if (IsA(n, TargetEntry))
 					{
 						TargetEntry *tle = (TargetEntry *) n;
-						Var		   *tmp_var;
 
 						n = (Node *) tle->expr;
-						tmp_var = (Var *) n;
-						switch (tmp_var->vartype)
-						{
-							case INT2OID:
-							case INT4OID:
-							case INT8OID:
-							case OIDOID:
-							case FLOAT4OID:
-							case FLOAT8OID:
-							case NUMERICOID:
-								{
-									if (!(is_math_func || is_selector_func))
-									{
-										return false;
-									}
-									break;
-								}
-							case TIMESTAMPOID:
-							case TIMESTAMPTZOID:
-								{
-									if (!is_selector_func)
-									{
-										return false;
-									}
-									break;
-								}
-							default:
-								return false;
-						}
 					}
-					else if (!(agg->aggstar == true && is_count_func))
-						return false;
 
 					if (!jdbc_foreign_expr_walker(n, glob_cxt, &inner_cxt))
 						return false;
@@ -2505,4 +2489,25 @@ jdbc_quote_identifier(const char *ident, char *q_char, bool quote_all_identifier
 	*optr = '\0';
 
 	return result;
+}
+
+/*
+ * Return true if function name existed in list of function
+ */
+static bool
+jdbc_func_exist_in_list(char *funcname, const char **funclist)
+{
+	int			i;
+
+	if (funclist == NULL ||		/* NULL list */
+		funclist[0] == NULL ||	/* List length = 0 */
+		funcname == NULL)		/* Input function name = NULL */
+		return false;
+
+	for (i = 0; funclist[i]; i++)
+	{
+		if (strcmp(funcname, funclist[i]) == 0)
+			return true;
+	}
+	return false;
 }

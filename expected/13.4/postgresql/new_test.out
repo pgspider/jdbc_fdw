@@ -437,14 +437,12 @@ SELECT c1, c5, c3, c2 FROM tbl04 WHERE c1 = ANY (SELECT c1 FROM tbl04 WHERE c4 !
 --Testcase 56:
 EXPLAIN VERBOSE
 SELECT variance(c1), variance(c2) FROM tbl04;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
- Aggregate  (cost=181.68..181.69 rows=1 width=40)
-   Output: variance(c1), variance(c2)
-   ->  Foreign Scan on public.tbl04  (cost=100.00..171.44 rows=2048 width=16)
-         Output: id, c1, c2, c3, c4, c5
-         Remote SQL: SELECT c1, c2 FROM tbl04
-(5 rows)
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=40)
+   Output: (variance(c1)), (variance(c2))
+   Remote SQL: SELECT variance(c1), variance(c2) FROM tbl04
+(3 rows)
 
 --Testcase 57:
 SELECT variance(c1), variance(c2) FROM tbl04;
@@ -473,14 +471,12 @@ SELECT variance(c1) FROM tbl04 WHERE c3 <> 'aef';
 --Testcase 60:
 EXPLAIN VERBOSE
 SELECT max(id), min(c1), variance(c2) FROM tbl04;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
- Aggregate  (cost=179.79..179.80 rows=1 width=44)
-   Output: max(id), min(c1), variance(c2)
-   ->  Foreign Scan on public.tbl04  (cost=100.00..165.83 rows=1861 width=20)
-         Output: id, c1, c2, c3, c4, c5
-         Remote SQL: SELECT id, c1, c2 FROM tbl04
-(5 rows)
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=44)
+   Output: (max(id)), (min(c1)), (variance(c2))
+   Remote SQL: SELECT max(id), min(c1), variance(c2) FROM tbl04
+(3 rows)
 
 --Testcase 61:
 SELECT max(id), min(c1), variance(c2) FROM tbl04;
@@ -492,14 +488,12 @@ SELECT max(id), min(c1), variance(c2) FROM tbl04;
 --Testcase 62:
 EXPLAIN VERBOSE
 SELECT variance(c2), variance(c1) FROM tbl04;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
- Aggregate  (cost=181.68..181.69 rows=1 width=40)
-   Output: variance(c2), variance(c1)
-   ->  Foreign Scan on public.tbl04  (cost=100.00..171.44 rows=2048 width=16)
-         Output: id, c1, c2, c3, c4, c5
-         Remote SQL: SELECT c1, c2 FROM tbl04
-(5 rows)
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=40)
+   Output: (variance(c2)), (variance(c1))
+   Remote SQL: SELECT variance(c2), variance(c1) FROM tbl04
+(3 rows)
 
 --Testcase 63:
 SELECT variance(c2), variance(c1) FROM tbl04;
@@ -511,20 +505,54 @@ SELECT variance(c2), variance(c1) FROM tbl04;
 --Testcase 64:
 EXPLAIN VERBOSE
 SELECT sum(c1), variance(c1) FROM tbl04 WHERE id <= 10;
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Aggregate  (cost=163.33..163.34 rows=1 width=16)
-   Output: sum(c1), variance(c1)
-   ->  Foreign Scan on public.tbl04  (cost=100.00..159.06 rows=853 width=8)
-         Output: id, c1, c2, c3, c4, c5
-         Remote SQL: SELECT c1 FROM tbl04 WHERE ((id <= 10))
-(5 rows)
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=16)
+   Output: (sum(c1)), (variance(c1))
+   Remote SQL: SELECT sum(c1), variance(c1) FROM tbl04 WHERE ((id <= 10))
+(3 rows)
 
 --Testcase 65:
 SELECT sum(c1), variance(c1) FROM tbl04 WHERE id <= 10;
     sum     |     variance      
 ------------+-------------------
  54615.1921 | 218658330.4346485
+(1 row)
+
+----aggregation function push-down: count(var)
+--Testcase 83:
+EXPLAIN VERBOSE
+SELECT count(c1), sum(c2), variance(c2) FROM tbl04;
+                            QUERY PLAN                            
+------------------------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=72)
+   Output: (count(c1)), (sum(c2)), (variance(c2))
+   Remote SQL: SELECT count(c1), sum(c2), variance(c2) FROM tbl04
+(3 rows)
+
+--Testcase 84:
+SELECT count(c1), sum(c2), variance(c2) FROM tbl04;
+ count |   sum   |       variance        
+-------+---------+-----------------------
+     9 | 2022748 | 363923108867.44444444
+(1 row)
+
+----aggregation function push-down: count(*)
+--Testcase 85:
+EXPLAIN VERBOSE
+SELECT count(*) FROM tbl04;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (count(*))
+   Remote SQL: SELECT count(*) FROM tbl04
+(3 rows)
+
+--Testcase 86:
+SELECT count(*) FROM tbl04;
+ count 
+-------
+     9
 (1 row)
 
 --aggregation function push-down: having
@@ -566,6 +594,64 @@ SELECT count(c1) + sum (c2), variance(c2)/2.12 FROM tbl04 HAVING count(c4) != 0 
  ?column? |       ?column?        
 ----------+-----------------------
   2022757 | 171661843805.39832285
+(1 row)
+
+--aggregation function push-down: non push-down case
+--Testcase 95:
+EXPLAIN VERBOSE
+SELECT bit_and(id) FROM tbl04;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Aggregate  (cost=205.06..205.07 rows=1 width=4)
+   Output: bit_and(id)
+   ->  Foreign Scan on public.tbl04  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, c1, c2, c3, c4, c5
+         Remote SQL: SELECT id FROM tbl04
+(5 rows)
+
+--Testcase 96:
+SELECT bit_and(id) FROM tbl04;
+ bit_and 
+---------
+       0
+(1 row)
+
+--Testcase 97:
+EXPLAIN VERBOSE
+SELECT bit_or(id) FROM tbl04;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Aggregate  (cost=205.06..205.07 rows=1 width=4)
+   Output: bit_or(id)
+   ->  Foreign Scan on public.tbl04  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, c1, c2, c3, c4, c5
+         Remote SQL: SELECT id FROM tbl04
+(5 rows)
+
+--Testcase 98:
+SELECT bit_or(id) FROM tbl04;
+ bit_or 
+--------
+     15
+(1 row)
+
+--Testcase 99:
+EXPLAIN VERBOSE
+SELECT corr(id, c1) FROM tbl04;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Aggregate  (cost=189.63..189.64 rows=1 width=8)
+   Output: corr((id)::double precision, c1)
+   ->  Foreign Scan on public.tbl04  (cost=100.00..178.25 rows=2275 width=12)
+         Output: id, c1, c2, c3, c4, c5
+         Remote SQL: SELECT id, c1 FROM tbl04
+(5 rows)
+
+--Testcase 100:
+SELECT corr(id, c1) FROM tbl04;
+        corr         
+---------------------
+ 0.20164072965667135
 (1 row)
 
 --Test Long Varbinary type (Mysql)
@@ -618,9 +704,66 @@ SELECT '' AS four, f.f1 FROM tbl06 f WHERE f.f1 <> '1004.3' GROUP BY f.id, f.f1 
       | 1.2345679e-20
 (4 rows)
 
+--Testcase 87:
+CREATE FOREIGN TABLE test_explicit_cast (id serial OPTIONS (key 'true'), c1 text) SERVER :DB_SERVERNAME OPTIONS ( table_name 'test_explicit_cast');
+--Testcase 88:
+INSERT INTO test_explicit_cast(c1) VALUES ('1'), ('1.5'), ('1.6');
+-- jdbc_fdw does not support push-down aggregate function if it has explicit cast inside
+--Testcase 89:
+EXPLAIN VERBOSE
+SELECT var_samp(c1::numeric) FROM test_explicit_cast; -- Does not push down
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Aggregate  (cost=164.83..164.84 rows=1 width=32)
+   Output: var_samp((c1)::numeric)
+   ->  Foreign Scan on public.test_explicit_cast  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, c1
+         Remote SQL: SELECT c1 FROM test_explicit_cast
+(5 rows)
+
+--Testcase 90:
+SELECT var_samp(c1::numeric) FROM test_explicit_cast; -- Does not push down
+        var_samp        
+------------------------
+ 0.10333333333333333333
+(1 row)
+
+--Testcase 92:
+EXPLAIN VERBOSE
+SELECT sum(c1::float8) FROM test_explicit_cast; -- Does not push down
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Aggregate  (cost=164.83..164.84 rows=1 width=8)
+   Output: sum((c1)::double precision)
+   ->  Foreign Scan on public.test_explicit_cast  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, c1
+         Remote SQL: SELECT c1 FROM test_explicit_cast
+(5 rows)
+
+--Testcase 93:
+SELECT sum(c1::float8) FROM test_explicit_cast; -- Does not push down
+ sum 
+-----
+ 4.1
+(1 row)
+
+--Testcase 94:
+SELECT * FROM public.jdbc_fdw_version();
+ jdbc_fdw_version 
+------------------
+              200
+(1 row)
+
+--Testcase 95:
+SELECT jdbc_fdw_version();
+ jdbc_fdw_version 
+------------------
+              200
+(1 row)
+
 --Testcase 70:
 DROP SERVER :DB_SERVERNAME CASCADE;
-psql:sql/13.4/new_test.sql:213: NOTICE:  drop cascades to 7 other objects
+psql:sql/13.4/new_test.sql:267: NOTICE:  drop cascades to 8 other objects
 DETAIL:  drop cascades to user mapping for public on server postgres
 drop cascades to foreign table tbl01
 drop cascades to foreign table tbl02
@@ -628,5 +771,6 @@ drop cascades to foreign table tbl03
 drop cascades to foreign table tbl04
 drop cascades to foreign table tbl05
 drop cascades to foreign table tbl06
+drop cascades to foreign table test_explicit_cast
 --Testcase 71:
 DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

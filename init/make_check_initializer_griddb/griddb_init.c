@@ -608,7 +608,8 @@ griddb_init(const char *addr,
 				tbl02,
 				tbl03,
 				tbl04,
-				tbl05;
+				tbl05,
+				test_explicit_cast;
 	const		GSPropertyEntry props[] = {
 		{"notificationAddress", addr},
 		{"notificationPort", port},
@@ -2849,6 +2850,13 @@ griddb_init(const char *addr,
 						2,
 						"id", GS_TYPE_INTEGER, GS_TYPE_OPTION_NOT_NULL,
 						"v", GS_TYPE_BLOB, GS_TYPE_OPTION_NULLABLE);
+	if (!GS_SUCCEEDED(ret))
+		goto EXIT;
+
+	ret = set_tableInfo(store, "test_explicit_cast", &test_explicit_cast,
+						2,
+						"id", GS_TYPE_INTEGER, GS_TYPE_OPTION_NOT_NULL,
+						"c1", GS_TYPE_STRING, GS_TYPE_OPTION_NULLABLE);
 	if (!GS_SUCCEEDED(ret))
 		goto EXIT;
 
