@@ -1,7 +1,7 @@
 JDBC Foreign Data Wrapper for PostgreSQL
 =========================================
 * This PostgreSQL extension is a Foreign Data Wrapper (FDW) for JDBC.
-* The current version can work with PostgreSQL 13, 14.
+* The current version can work with PostgreSQL 13.
 * Java 5 or later is required (Confirmed version is Java OpenJDK 1.8.0).
 * This jdbc_fdw is based on [JDBC\_FDW](http://github.com/atris/JDBC_FDW.git), [jdbc2\_fdw](https://github.com/heimir-sverrisson/jdbc2_fdw).  
 
@@ -121,7 +121,7 @@ This is a performance feature.
 #### Aggregate function push-down
 List of aggregate functions push-down:
 ```
-sum, avg, stddev, variance, max, min, count.
+sum, avg, stddev, stddev_pop, stddev_samp, var_pop, var_samp, variance, max, min, count.
 ```
 
 Usage
@@ -147,9 +147,6 @@ IMPORT FOREIGN SCHEMA public
 
 Limitations
 -----------
-#### Multiple aggregate functions push-down
-Currently, jdbc_fdw can only push-down one aggregation function in single SQL.
-
 #### Unsupported clause  
 The following clasues are not support in jdbc_fdw:
 RETURNING, GROUPBY, ORDER BY clauses, casting type, transaction control 

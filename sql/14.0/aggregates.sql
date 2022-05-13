@@ -9,7 +9,7 @@ drivername :DB_DRIVERNAME,
 url :DB_URL,
 querytimeout '10',
 jarfile :DB_DRIVERPATH,
-maxheapsize '6000'
+maxheapsize '600'
 );
 --Testcase 3:
 CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS(username :DB_USER,password :DB_PASS);
@@ -221,9 +221,9 @@ EXPLAIN VERBOSE select
   (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)))
 from tenk1 o;
 --Testcase 77:
--- select
---   (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)))
--- from tenk1 o;
+select
+  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)))
+from tenk1 o;
 
 --
 -- test boolean aggregates

@@ -285,12 +285,18 @@ public class JDBCUtils {
          * has the value of the fields of the current
          * row as it values. */
         return tmpArrayOfResultRow;
+      } else {
+        /*
+         * All of resultSet's rows have been returned to the C code.
+         * Close tmpResultSet's statement
+         */
+        tmpResultSet.getStatement().close();
+        clearResultSetID(resultSetID);
+        return null;
       }
     } catch (Throwable e) {
       throw e;
     }
-    /* All of resultSet's rows have been returned to the C code. */
-    return null;
   }
 
   /*

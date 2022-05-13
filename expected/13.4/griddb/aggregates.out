@@ -15,7 +15,7 @@ drivername :DB_DRIVERNAME,
 url :DB_URL,
 querytimeout '10',
 jarfile :DB_DRIVERPATH,
-maxheapsize '6000'
+maxheapsize '600'
 );
 --Testcase 3:
 CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS(username :DB_USER,password :DB_PASS);
@@ -105,16 +105,20 @@ SELECT avg(a) AS avg_32 FROM aggtest WHERE a < 100;
 -- Round the result to 3 digits to avoid platform-specific results.
 --Testcase 14:
 EXPLAIN VERBOSE SELECT avg(b)::numeric(10,3) AS avg_107_943 FROM aggtest;
-                         QUERY PLAN                          
--------------------------------------------------------------
+                   QUERY PLAN                    
+-------------------------------------------------
  Foreign Scan  (cost=1.00..1.00 rows=1 width=16)
-   Output: ((avg(b))::numeric(10,3))
-   Remote SQL: SELECT "numeric"(avg(b), 655367) FROM aggtest
+   Output: ((avg(b)))::numeric(10,3)
+   Remote SQL: SELECT avg(b) FROM aggtest
 (3 rows)
 
 --Testcase 15:
 SELECT avg(b)::numeric(10,3) AS avg_107_943 FROM aggtest;
-psql:sql/13.4/aggregates.sql:80: ERROR:  remote server returned an error
+ avg_107_943 
+-------------
+     107.943
+(1 row)
+
 --Testcase 16:
 EXPLAIN VERBOSE SELECT sum(four) AS sum_1500 FROM onek;
                    QUERY PLAN                   
@@ -213,14 +217,12 @@ SELECT max(aggtest.b) AS max_324_78 FROM aggtest;
 
 --Testcase 28:
 EXPLAIN VERBOSE SELECT stddev_pop(b) FROM aggtest;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- Aggregate  (cost=205.06..205.07 rows=1 width=8)
-   Output: stddev_pop(b)
-   ->  Foreign Scan on public.aggtest  (cost=100.00..197.75 rows=2925 width=4)
-         Output: id, a, b
-         Remote SQL: SELECT b FROM aggtest
-(5 rows)
+                   QUERY PLAN                    
+-------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (stddev_pop(b))
+   Remote SQL: SELECT stddev_pop(b) FROM aggtest
+(3 rows)
 
 --Testcase 29:
 SELECT stddev_pop(b) FROM aggtest;
@@ -231,14 +233,12 @@ SELECT stddev_pop(b) FROM aggtest;
 
 --Testcase 30:
 EXPLAIN VERBOSE SELECT stddev_samp(b) FROM aggtest;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- Aggregate  (cost=205.06..205.07 rows=1 width=8)
-   Output: stddev_samp(b)
-   ->  Foreign Scan on public.aggtest  (cost=100.00..197.75 rows=2925 width=4)
-         Output: id, a, b
-         Remote SQL: SELECT b FROM aggtest
-(5 rows)
+                    QUERY PLAN                    
+--------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (stddev_samp(b))
+   Remote SQL: SELECT stddev_samp(b) FROM aggtest
+(3 rows)
 
 --Testcase 31:
 SELECT stddev_samp(b) FROM aggtest;
@@ -249,14 +249,12 @@ SELECT stddev_samp(b) FROM aggtest;
 
 --Testcase 32:
 EXPLAIN VERBOSE SELECT var_pop(b) FROM aggtest;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- Aggregate  (cost=205.06..205.07 rows=1 width=8)
-   Output: var_pop(b)
-   ->  Foreign Scan on public.aggtest  (cost=100.00..197.75 rows=2925 width=4)
-         Output: id, a, b
-         Remote SQL: SELECT b FROM aggtest
-(5 rows)
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (var_pop(b))
+   Remote SQL: SELECT var_pop(b) FROM aggtest
+(3 rows)
 
 --Testcase 33:
 SELECT var_pop(b) FROM aggtest;
@@ -267,14 +265,12 @@ SELECT var_pop(b) FROM aggtest;
 
 --Testcase 34:
 EXPLAIN VERBOSE SELECT var_samp(b) FROM aggtest;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- Aggregate  (cost=205.06..205.07 rows=1 width=8)
-   Output: var_samp(b)
-   ->  Foreign Scan on public.aggtest  (cost=100.00..197.75 rows=2925 width=4)
-         Output: id, a, b
-         Remote SQL: SELECT b FROM aggtest
-(5 rows)
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (var_samp(b))
+   Remote SQL: SELECT var_samp(b) FROM aggtest
+(3 rows)
 
 --Testcase 35:
 SELECT var_samp(b) FROM aggtest;
@@ -593,14 +589,12 @@ DROP FOREIGN TABLE regr_test;
 -- test count, distinct
 --Testcase 72:
 EXPLAIN VERBOSE SELECT count(four) AS cnt_1000 FROM onek;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate  (cost=205.06..205.07 rows=1 width=8)
-   Output: count(four)
-   ->  Foreign Scan on public.onek  (cost=100.00..197.75 rows=2925 width=4)
-         Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
-         Remote SQL: SELECT four FROM onek
-(5 rows)
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (count(four))
+   Remote SQL: SELECT count(four) FROM onek
+(3 rows)
 
 --Testcase 73:
 SELECT count(four) AS cnt_1000 FROM onek;
@@ -652,9 +646,14 @@ from tenk1 o;
 (13 rows)
 
 --Testcase 77:
--- select
---   (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)))
--- from tenk1 o;
+select
+  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)))
+from tenk1 o;
+ max  
+------
+ 9999
+(1 row)
+
 --
 -- test boolean aggregates
 --
@@ -873,15 +872,10 @@ select distinct max(unique2) from tenk1;
 --Testcase 99:
 explain (costs off)
   select max(100) from tenk1;
-                     QUERY PLAN                     
-----------------------------------------------------
- Result
-   InitPlan 1 (returns $0)
-     ->  Limit
-           ->  Result
-                 One-Time Filter: (100 IS NOT NULL)
-                 ->  Foreign Scan on tenk1
-(6 rows)
+  QUERY PLAN  
+--------------
+ Foreign Scan
+(1 row)
 
 --Testcase 100:
 select max(100) from tenk1;

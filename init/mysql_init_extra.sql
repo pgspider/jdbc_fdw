@@ -3,6 +3,7 @@ DROP TABLE IF EXISTS tbl02;
 DROP TABLE IF EXISTS tbl03;
 DROP TABLE IF EXISTS tbl04;
 DROP TABLE IF EXISTS tbl05;
+DROP TABLE IF EXISTS test_explicit_cast;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -20,3 +21,4 @@ INSERT INTO tbl04 VALUES (6, 45021.21, 2121, 'example', false, '1999-10-01 00:00
 INSERT INTO tbl04 VALUES (7, 121.9741, 23241, 'thing', false, '2010-10-01 00:00:00');
 INSERT INTO tbl04 VALUES (8, 75, 316, 'example', false, '1999-10-01 10:10:00');
 INSERT INTO tbl04 VALUES (9, 6867.34, 8916, 'thing', false, '2010-10-01 10:10:00');
+CREATE TABLE test_explicit_cast(id int, c1 text);

@@ -167,6 +167,21 @@ EXPLAIN VERBOSE
 SELECT sum(c1), variance(c1) FROM tbl04 WHERE id <= 10;
 --Testcase 65:
 SELECT sum(c1), variance(c1) FROM tbl04 WHERE id <= 10;
+
+----aggregation function push-down: count(var)
+--Testcase 83:
+EXPLAIN VERBOSE
+SELECT count(c1), sum(c2), variance(c2) FROM tbl04;
+--Testcase 84:
+SELECT count(c1), sum(c2), variance(c2) FROM tbl04;
+
+----aggregation function push-down: count(*)
+--Testcase 85:
+EXPLAIN VERBOSE
+SELECT count(*) FROM tbl04;
+--Testcase 86:
+SELECT count(*) FROM tbl04;
+
 --aggregation function push-down: having
 --Testcase 66:
 EXPLAIN VERBOSE
@@ -178,6 +193,25 @@ EXPLAIN VERBOSE
 SELECT count(c1) + sum (c2), variance(c2)/2.12 FROM tbl04 HAVING count(c4) != 0 AND variance(c2) > 55.54;
 --Testcase 69:
 SELECT count(c1) + sum (c2), variance(c2)/2.12 FROM tbl04 HAVING count(c4) != 0 AND variance(c2) > 55.54;
+
+--aggregation function push-down: non push-down case
+--Testcase 95:
+EXPLAIN VERBOSE
+SELECT bit_and(id) FROM tbl04;
+--Testcase 96:
+SELECT bit_and(id) FROM tbl04;
+
+--Testcase 97:
+EXPLAIN VERBOSE
+SELECT bit_or(id) FROM tbl04;
+--Testcase 98:
+SELECT bit_or(id) FROM tbl04;
+
+--Testcase 99:
+EXPLAIN VERBOSE
+SELECT corr(id, c1) FROM tbl04;
+--Testcase 100:
+SELECT corr(id, c1) FROM tbl04;
 
 --Test Long Varbinary type (Mysql)
 --Testcase 72:
@@ -208,6 +242,26 @@ INSERT INTO tbl06(f1) VALUES ('1.2345678901234e+20');
 INSERT INTO tbl06(f1) VALUES ('1.2345678901234e-20');
 --Testcase 82:
 SELECT '' AS four, f.f1 FROM tbl06 f WHERE f.f1 <> '1004.3' GROUP BY f.id, f.f1 HAVING abs(f1 - 1004.3) > 0.001 ORDER BY f.id;
+
+--Testcase 87:
+CREATE FOREIGN TABLE test_explicit_cast (id serial OPTIONS (key 'true'), c1 text) SERVER :DB_SERVERNAME OPTIONS ( table_name 'test_explicit_cast');
+--Testcase 88:
+INSERT INTO test_explicit_cast(c1) VALUES ('1'), ('1.5'), ('1.6');
+-- jdbc_fdw does not support push-down aggregate function if it has explicit cast inside
+--Testcase 89:
+EXPLAIN VERBOSE
+SELECT var_samp(c1::numeric) FROM test_explicit_cast; -- Does not push down
+--Testcase 90:
+SELECT var_samp(c1::numeric) FROM test_explicit_cast; -- Does not push down
+--Testcase 92:
+EXPLAIN VERBOSE
+SELECT sum(c1::float8) FROM test_explicit_cast; -- Does not push down
+--Testcase 93:
+SELECT sum(c1::float8) FROM test_explicit_cast; -- Does not push down
+--Testcase 94:
+SELECT * FROM public.jdbc_fdw_version();
+--Testcase 95:
+SELECT jdbc_fdw_version();
 
 --Testcase 70:
 DROP SERVER :DB_SERVERNAME CASCADE;

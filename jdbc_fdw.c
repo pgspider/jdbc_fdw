@@ -234,7 +234,7 @@ typedef struct ConversionLocation
  * SQL functions
  */
 PG_FUNCTION_INFO_V1(jdbc_fdw_handler);
-
+PG_FUNCTION_INFO_V1(jdbc_fdw_version);
 /*
  * FDW callback routines
  */
@@ -395,6 +395,11 @@ jdbc_fdw_handler(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(routine);
 }
 
+Datum
+jdbc_fdw_version(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_INT32(CODE_VERSION);
+}
 /*
  * jdbcGetForeignRelSize Estimate # of rows and width of the result of the
  * scan
@@ -1895,7 +1900,7 @@ jdbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel)
 	 * different from those in the plan's targetlist. Use a copy of path
 	 * target to record the new sortgrouprefs.
 	 */
-	grouping_target = root->upper_targets[UPPERREL_GROUP_AGG];
+	grouping_target = grouped_rel->reltarget;
 
 	/*
 	 * Examine grouping expressions, as well as other expressions we'd need to
@@ -1931,13 +1936,6 @@ jdbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel)
 			 * Yes, so add to tlist as-is; OK to suppress duplicates
 			 */
 			tlist = add_to_flat_tlist(tlist, list_make1(expr));
-
-			/*
-			 * JDBC does not support selecting multiple target, so do not push
-			 * down when there are multiple items in target list.
-			 */
-			if (list_length(tlist) > 1)
-				return false;
 		}
 		else
 		{
@@ -1974,13 +1972,6 @@ jdbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel)
 				if (IsA(expr, Aggref))
 					tlist = add_to_flat_tlist(tlist, list_make1(expr));
 			}
-
-			/*
-			 * JDBC does not support selecting multiple target, so do not push
-			 * down when there are multiple items in target list.
-			 */
-			if (list_length(tlist) > 1)
-				return false;
 		}
 
 		i++;
