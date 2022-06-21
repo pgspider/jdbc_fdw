@@ -1,7 +1,7 @@
 JDBC Foreign Data Wrapper for PostgreSQL
 =========================================
 * This PostgreSQL extension is a Foreign Data Wrapper (FDW) for JDBC.
-* The current version can work with PostgreSQL 13.
+* The current version can work with PostgreSQL 13, 14.
 * Java 5 or later is required (Confirmed version is Java OpenJDK 1.8.0).
 * This jdbc_fdw is based on [JDBC\_FDW](http://github.com/atris/JDBC_FDW.git), [jdbc2\_fdw](https://github.com/heimir-sverrisson/jdbc2_fdw).  
 
