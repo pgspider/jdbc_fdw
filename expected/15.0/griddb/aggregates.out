@@ -1,0 +1,1556 @@
+--
+-- GridDB
+-- AGGREGATES
+--
+\set ECHO none
+\i sql/15.0/aggregates.sql
+--
+-- AGGREGATES
+--
+--Testcase 1:
+CREATE EXTENSION :DB_EXTENSIONNAME;
+--Testcase 2:
+CREATE SERVER :DB_SERVERNAME FOREIGN DATA WRAPPER :DB_EXTENSIONNAME OPTIONS(
+drivername :DB_DRIVERNAME,
+url :DB_URL,
+querytimeout '10',
+jarfile :DB_DRIVERPATH,
+maxheapsize '600'
+);
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS(username :DB_USER,password :DB_PASS);
+--Testcase 4:
+CREATE FOREIGN TABLE onek (
+  unique1   int4,
+  unique2   int4,
+  two       int4,
+  four      int4,
+  ten       int4,
+  twenty    int4,
+  hundred   int4,
+  thousand  int4,
+  twothousand int4,
+  fivethous int4,
+  tenthous  int4,
+  odd       int4,
+  even      int4,
+  stringu1  name,
+  stringu2  name,
+  string4   name) SERVER :DB_SERVERNAME OPTIONS ( table_name 'onek');
+--Testcase 5:
+CREATE FOREIGN TABLE aggtest (
+  id      int4,
+  a       int2,
+  b     float4
+) SERVER :DB_SERVERNAME OPTIONS ( table_name 'aggtest');
+--Testcase 6:
+CREATE FOREIGN TABLE tenk1 (
+  unique1   int4,
+  unique2   int4,
+  two     int4,
+  four    int4,
+  ten     int4,
+  twenty    int4,
+  hundred   int4,
+  thousand  int4,
+  twothousand int4,
+  fivethous int4,
+  tenthous  int4,
+  odd     int4,
+  even    int4,
+  stringu1  text,
+  stringu2  text,
+  string4   text
+) SERVER :DB_SERVERNAME OPTIONS ( table_name 'tenk1');
+--Testcase 7:
+CREATE FOREIGN TABLE int8_tbl (id int, q1 int8, q2 int8) SERVER :DB_SERVERNAME OPTIONS ( table_name 'int8_tbl');
+--Testcase 8:
+CREATE FOREIGN TABLE int4_tbl (id int, f1 int4) SERVER :DB_SERVERNAME OPTIONS ( table_name 'int4_tbl');  
+-- avoid bit-exact output here because operations may not be bit-exact.
+--Testcase 9:
+SET extra_float_digits = 0;
+--Testcase 10:
+EXPLAIN VERBOSE SELECT avg(four) AS avg_1 FROM onek;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=32)
+   Output: (avg(four))
+   Remote SQL: SELECT avg(four) FROM onek
+(3 rows)
+
+--Testcase 11:
+SELECT avg(four) AS avg_1 FROM onek;
+ avg_1 
+-------
+   1.5
+(1 row)
+
+--Testcase 12:
+EXPLAIN VERBOSE SELECT avg(a) AS avg_32 FROM aggtest WHERE a < 100;
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=32)
+   Output: (avg(a))
+   Remote SQL: SELECT avg(a) FROM aggtest WHERE ((a < 100))
+(3 rows)
+
+--Testcase 13:
+SELECT avg(a) AS avg_32 FROM aggtest WHERE a < 100;
+       avg_32       
+--------------------
+ 32.666666666666664
+(1 row)
+
+-- In 7.1, avg(float4) is computed using float8 arithmetic.
+-- Round the result to 3 digits to avoid platform-specific results.
+--Testcase 14:
+EXPLAIN VERBOSE SELECT avg(b)::numeric(10,3) AS avg_107_943 FROM aggtest;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=16)
+   Output: ((avg(b)))::numeric(10,3)
+   Remote SQL: SELECT avg(b) FROM aggtest
+(3 rows)
+
+--Testcase 15:
+SELECT avg(b)::numeric(10,3) AS avg_107_943 FROM aggtest;
+ avg_107_943 
+-------------
+     107.943
+(1 row)
+
+--Testcase 16:
+EXPLAIN VERBOSE SELECT sum(four) AS sum_1500 FROM onek;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (sum(four))
+   Remote SQL: SELECT sum(four) FROM onek
+(3 rows)
+
+--Testcase 17:
+SELECT sum(four) AS sum_1500 FROM onek;
+ sum_1500 
+----------
+     1500
+(1 row)
+
+--Testcase 18:
+EXPLAIN VERBOSE SELECT sum(a) AS sum_198 FROM aggtest;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (sum(a))
+   Remote SQL: SELECT sum(a) FROM aggtest
+(3 rows)
+
+--Testcase 19:
+SELECT sum(a) AS sum_198 FROM aggtest;
+ sum_198 
+---------
+     198
+(1 row)
+
+--Testcase 20:
+EXPLAIN VERBOSE SELECT sum(b) AS avg_431_773 FROM aggtest;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=4)
+   Output: (sum(b))
+   Remote SQL: SELECT sum(b) FROM aggtest
+(3 rows)
+
+--Testcase 21:
+SELECT sum(b) AS avg_431_773 FROM aggtest;
+ avg_431_773 
+-------------
+     431.773
+(1 row)
+
+--Testcase 22:
+EXPLAIN VERBOSE SELECT max(four) AS max_3 FROM onek;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=4)
+   Output: (max(four))
+   Remote SQL: SELECT max(four) FROM onek
+(3 rows)
+
+--Testcase 23:
+SELECT max(four) AS max_3 FROM onek;
+ max_3 
+-------
+     3
+(1 row)
+
+--Testcase 24:
+EXPLAIN VERBOSE SELECT max(a) AS max_100 FROM aggtest;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=2)
+   Output: (max(a))
+   Remote SQL: SELECT max(a) FROM aggtest
+(3 rows)
+
+--Testcase 25:
+SELECT max(a) AS max_100 FROM aggtest;
+ max_100 
+---------
+     100
+(1 row)
+
+--Testcase 26:
+EXPLAIN VERBOSE SELECT max(aggtest.b) AS max_324_78 FROM aggtest;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=4)
+   Output: (max(b))
+   Remote SQL: SELECT max(b) FROM aggtest
+(3 rows)
+
+--Testcase 27:
+SELECT max(aggtest.b) AS max_324_78 FROM aggtest;
+ max_324_78 
+------------
+     324.78
+(1 row)
+
+--Testcase 28:
+EXPLAIN VERBOSE SELECT stddev_pop(b) FROM aggtest;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (stddev_pop(b))
+   Remote SQL: SELECT stddev_pop(b) FROM aggtest
+(3 rows)
+
+--Testcase 29:
+SELECT stddev_pop(b) FROM aggtest;
+   stddev_pop    
+-----------------
+ 131.10703231895
+(1 row)
+
+--Testcase 30:
+EXPLAIN VERBOSE SELECT stddev_samp(b) FROM aggtest;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (stddev_samp(b))
+   Remote SQL: SELECT stddev_samp(b) FROM aggtest
+(3 rows)
+
+--Testcase 31:
+SELECT stddev_samp(b) FROM aggtest;
+   stddev_samp    
+------------------
+ 151.389360803998
+(1 row)
+
+--Testcase 32:
+EXPLAIN VERBOSE SELECT var_pop(b) FROM aggtest;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (var_pop(b))
+   Remote SQL: SELECT var_pop(b) FROM aggtest
+(3 rows)
+
+--Testcase 33:
+SELECT var_pop(b) FROM aggtest;
+     var_pop      
+------------------
+ 17189.0539234823
+(1 row)
+
+--Testcase 34:
+EXPLAIN VERBOSE SELECT var_samp(b) FROM aggtest;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (var_samp(b))
+   Remote SQL: SELECT var_samp(b) FROM aggtest
+(3 rows)
+
+--Testcase 35:
+SELECT var_samp(b) FROM aggtest;
+     var_samp     
+------------------
+ 22918.7385646431
+(1 row)
+
+--Testcase 36:
+EXPLAIN VERBOSE SELECT stddev_pop(b::numeric) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=32)
+   Output: stddev_pop((b)::numeric)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, a, b
+         Remote SQL: SELECT b FROM aggtest
+(5 rows)
+
+--Testcase 37:
+SELECT stddev_pop(b::numeric) FROM aggtest;
+    stddev_pop    
+------------------
+ 131.107032862199
+(1 row)
+
+--Testcase 38:
+EXPLAIN VERBOSE SELECT stddev_samp(b::numeric) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=32)
+   Output: stddev_samp((b)::numeric)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, a, b
+         Remote SQL: SELECT b FROM aggtest
+(5 rows)
+
+--Testcase 39:
+SELECT stddev_samp(b::numeric) FROM aggtest;
+   stddev_samp    
+------------------
+ 151.389361431288
+(1 row)
+
+--Testcase 40:
+EXPLAIN VERBOSE SELECT var_pop(b::numeric) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=32)
+   Output: var_pop((b)::numeric)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, a, b
+         Remote SQL: SELECT b FROM aggtest
+(5 rows)
+
+--Testcase 41:
+SELECT var_pop(b::numeric) FROM aggtest;
+      var_pop       
+--------------------
+ 17189.054065929769
+(1 row)
+
+--Testcase 42:
+EXPLAIN VERBOSE SELECT var_samp(b::numeric) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=32)
+   Output: var_samp((b)::numeric)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, a, b
+         Remote SQL: SELECT b FROM aggtest
+(5 rows)
+
+--Testcase 43:
+SELECT var_samp(b::numeric) FROM aggtest;
+      var_samp      
+--------------------
+ 22918.738754573025
+(1 row)
+
+-- SQL2003 binary aggregates
+--Testcase 44:
+EXPLAIN VERBOSE SELECT regr_count(b, a) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=8)
+   Output: regr_count((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 45:
+SELECT regr_count(b, a) FROM aggtest;
+ regr_count 
+------------
+          4
+(1 row)
+
+--Testcase 46:
+EXPLAIN VERBOSE SELECT regr_sxx(b, a) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=8)
+   Output: regr_sxx((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 47:
+SELECT regr_sxx(b, a) FROM aggtest;
+ regr_sxx 
+----------
+     5099
+(1 row)
+
+--Testcase 48:
+EXPLAIN VERBOSE SELECT regr_syy(b, a) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=8)
+   Output: regr_syy((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 49:
+SELECT regr_syy(b, a) FROM aggtest;
+     regr_syy     
+------------------
+ 68756.2156939293
+(1 row)
+
+--Testcase 50:
+EXPLAIN VERBOSE SELECT regr_sxy(b, a) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=8)
+   Output: regr_sxy((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 51:
+SELECT regr_sxy(b, a) FROM aggtest;
+     regr_sxy     
+------------------
+ 2614.51582155004
+(1 row)
+
+--Testcase 52:
+EXPLAIN VERBOSE SELECT regr_avgx(b, a), regr_avgy(b, a) FROM aggtest;
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=16)
+   Output: regr_avgx((b)::double precision, (a)::double precision), regr_avgy((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 53:
+SELECT regr_avgx(b, a), regr_avgy(b, a) FROM aggtest;
+ regr_avgx |    regr_avgy     
+-----------+------------------
+      49.5 | 107.943152273074
+(1 row)
+
+--Testcase 54:
+EXPLAIN VERBOSE SELECT regr_r2(b, a) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=8)
+   Output: regr_r2((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 55:
+SELECT regr_r2(b, a) FROM aggtest;
+      regr_r2       
+--------------------
+ 0.0194977982031803
+(1 row)
+
+--Testcase 56:
+EXPLAIN VERBOSE SELECT regr_slope(b, a), regr_intercept(b, a) FROM aggtest;
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=16)
+   Output: regr_slope((b)::double precision, (a)::double precision), regr_intercept((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 57:
+SELECT regr_slope(b, a), regr_intercept(b, a) FROM aggtest;
+    regr_slope     |  regr_intercept  
+-------------------+------------------
+ 0.512750700441271 | 82.5619926012309
+(1 row)
+
+--Testcase 58:
+EXPLAIN VERBOSE SELECT covar_pop(b, a), covar_samp(b, a) FROM aggtest;
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=16)
+   Output: covar_pop((b)::double precision, (a)::double precision), covar_samp((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 59:
+SELECT covar_pop(b, a), covar_samp(b, a) FROM aggtest;
+    covar_pop    |    covar_samp    
+-----------------+------------------
+ 653.62895538751 | 871.505273850014
+(1 row)
+
+--Testcase 60:
+EXPLAIN VERBOSE SELECT corr(b, a) FROM aggtest;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.39 rows=1 width=8)
+   Output: corr((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=100.00..191.90 rows=2730 width=6)
+         Output: id, a, b
+         Remote SQL: SELECT a, b FROM aggtest
+(5 rows)
+
+--Testcase 61:
+SELECT corr(b, a) FROM aggtest;
+       corr        
+-------------------
+ 0.139634516517873
+(1 row)
+
+-- test accum and combine functions directly
+--Testcase 62:
+CREATE FOREIGN TABLE regr_test (id int, x float8, y float8) SERVER :DB_SERVERNAME
+  OPTIONS (table_name 'regr_test');
+--Testcase 63:
+EXPLAIN VERBOSE SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (10,20,30,80);
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
+ Aggregate  (cost=141.96..141.97 rows=1 width=48)
+   Output: count(*), sum(x), regr_sxx(y, x), sum(y), regr_syy(y, x), regr_sxy(y, x)
+   ->  Foreign Scan on public.regr_test  (cost=100.00..141.54 rows=41 width=16)
+         Output: id, x, y
+         Remote SQL: SELECT x, y FROM regr_test WHERE (x IN ('10', '20', '30', '80'))
+(5 rows)
+
+--Testcase 64:
+SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (10,20,30,80);
+psql:sql/15.0/aggregates.sql:188: ERROR:  remote server returned an error
+--Testcase 65:
+EXPLAIN VERBOSE SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate  (cost=191.93..191.94 rows=1 width=48)
+   Output: count(*), sum(x), regr_sxx(y, x), sum(y), regr_syy(y, x), regr_sxy(y, x)
+   ->  Foreign Scan on public.regr_test  (cost=100.00..171.44 rows=2048 width=16)
+         Output: id, x, y
+         Remote SQL: SELECT x, y FROM regr_test
+(5 rows)
+
+--Testcase 66:
+SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test;
+ count | sum | regr_sxx | sum  | regr_syy | regr_sxy 
+-------+-----+----------+------+----------+----------
+     5 | 240 |     6280 | 1490 |    95080 |     8680
+(1 row)
+
+--Testcase 67:
+EXPLAIN VERBOSE SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (10,20,30);
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate  (cost=139.10..139.11 rows=1 width=48)
+   Output: count(*), sum(x), regr_sxx(y, x), sum(y), regr_syy(y, x), regr_sxy(y, x)
+   ->  Foreign Scan on public.regr_test  (cost=100.00..138.78 rows=31 width=16)
+         Output: id, x, y
+         Remote SQL: SELECT x, y FROM regr_test WHERE (x IN ('10', '20', '30'))
+(5 rows)
+
+--Testcase 68:
+SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (10,20,30);
+psql:sql/15.0/aggregates.sql:198: ERROR:  remote server returned an error
+--Testcase 69:
+EXPLAIN VERBOSE SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (80,100);
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate  (cost=136.21..136.22 rows=1 width=48)
+   Output: count(*), sum(x), regr_sxx(y, x), sum(y), regr_syy(y, x), regr_sxy(y, x)
+   ->  Foreign Scan on public.regr_test  (cost=100.00..136.00 rows=20 width=16)
+         Output: id, x, y
+         Remote SQL: SELECT x, y FROM regr_test WHERE (x IN ('80', '100'))
+(5 rows)
+
+--Testcase 70:
+SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (80,100);
+psql:sql/15.0/aggregates.sql:204: ERROR:  remote server returned an error
+--Testcase 71:
+DROP FOREIGN TABLE regr_test;
+-- test count, distinct
+--Testcase 72:
+EXPLAIN VERBOSE SELECT count(four) AS cnt_1000 FROM onek;
+                   QUERY PLAN                   
+------------------------------------------------
+ Foreign Scan  (cost=1.00..1.00 rows=1 width=8)
+   Output: (count(four))
+   Remote SQL: SELECT count(four) FROM onek
+(3 rows)
+
+--Testcase 73:
+SELECT count(four) AS cnt_1000 FROM onek;
+ cnt_1000 
+----------
+     1000
+(1 row)
+
+--Testcase 74:
+EXPLAIN VERBOSE SELECT count(DISTINCT four) AS cnt_4 FROM onek;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=205.06..205.07 rows=1 width=8)
+   Output: count(DISTINCT four)
+   ->  Foreign Scan on public.onek  (cost=100.00..197.75 rows=2925 width=4)
+         Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+         Remote SQL: SELECT four FROM onek
+(5 rows)
+
+--Testcase 75:
+SELECT count(DISTINCT four) AS cnt_4 FROM onek;
+ cnt_4 
+-------
+     4
+(1 row)
+
+-- test for outer-level aggregates
+-- Test handling of sublinks within outer-level aggregates.
+-- Per bug report from Daniel Grace.
+--Testcase 76:
+EXPLAIN VERBOSE select
+  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)))
+from tenk1 o;
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=600012.88..600012.90 rows=1 width=4)
+   Output: (SubPlan 2)
+   ->  Foreign Scan on public.tenk1 o  (cost=100.00..197.75 rows=2925 width=4)
+         Output: o.unique1, o.unique2, o.two, o.four, o.ten, o.twenty, o.hundred, o.thousand, o.twothousand, o.fivethous, o.tenthous, o.odd, o.even, o.stringu1, o.stringu2, o.string4
+         Remote SQL: SELECT unique1 FROM tenk1
+   SubPlan 2
+     ->  Result  (cost=0.00..0.01 rows=1 width=4)
+           Output: max((SubPlan 1))
+   SubPlan 1
+     ->  Foreign Scan on public.tenk1 i  (cost=100.00..205.06 rows=15 width=4)
+           Output: i.unique2
+           Filter: (i.unique1 = o.unique1)
+           Remote SQL: SELECT unique1, unique2 FROM tenk1
+(13 rows)
+
+--Testcase 77:
+select
+  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)))
+from tenk1 o;
+ max  
+------
+ 9999
+(1 row)
+
+--
+-- test boolean aggregates
+--
+-- first test all possible transition and final states
+--Testcase 78:
+CREATE FOREIGN TABLE bool_test(
+  id serial OPTIONS (key 'true'), 
+  b1 BOOL,
+  b2 BOOL,
+  b3 BOOL,
+  b4 BOOL) SERVER :DB_SERVERNAME OPTIONS (table_name 'bool_test');
+-- empty case
+--Testcase 79:
+SELECT
+  BOOL_AND(b1)   AS "n",
+  BOOL_OR(b3)    AS "n"
+FROM bool_test;
+ n | n 
+---+---
+   | 
+(1 row)
+
+--Testcase 183:
+INSERT INTO bool_test(b1, b2, b3, b4) VALUES
+  (TRUE, null, FALSE, null),
+  (FALSE, TRUE, null, null),
+  (null, TRUE, FALSE, null);
+--Testcase 80:
+SELECT
+  BOOL_AND(b1)     AS "f",
+  BOOL_AND(b2)     AS "t",
+  BOOL_AND(b3)     AS "f",
+  BOOL_AND(b4)     AS "n",
+  BOOL_AND(NOT b2) AS "f",
+  BOOL_AND(NOT b3) AS "t"
+FROM bool_test;
+ f | t | f | n | f | t 
+---+---+---+---+---+---
+ f | t | f |   | f | t
+(1 row)
+
+--Testcase 81:
+SELECT
+  EVERY(b1)     AS "f",
+  EVERY(b2)     AS "t",
+  EVERY(b3)     AS "f",
+  EVERY(b4)     AS "n",
+  EVERY(NOT b2) AS "f",
+  EVERY(NOT b3) AS "t"
+FROM bool_test;
+ f | t | f | n | f | t 
+---+---+---+---+---+---
+ f | t | f |   | f | t
+(1 row)
+
+--Testcase 82:
+SELECT
+  BOOL_OR(b1)      AS "t",
+  BOOL_OR(b2)      AS "t",
+  BOOL_OR(b3)      AS "f",
+  BOOL_OR(b4)      AS "n",
+  BOOL_OR(NOT b2)  AS "f",
+  BOOL_OR(NOT b3)  AS "t"
+FROM bool_test;
+ t | t | f | n | f | t 
+---+---+---+---+---+---
+ t | t | f |   | f | t
+(1 row)
+
+--
+-- Test cases that should be optimized into indexscans instead of
+-- the generic aggregate implementation.
+--
+-- Basic cases
+--Testcase 83:
+explain (costs off)
+  select min(unique1) from tenk1;
+  QUERY PLAN  
+--------------
+ Foreign Scan
+(1 row)
+
+--Testcase 84:
+select min(unique1) from tenk1;
+ min 
+-----
+   0
+(1 row)
+
+--Testcase 85:
+explain (costs off)
+  select max(unique1) from tenk1;
+  QUERY PLAN  
+--------------
+ Foreign Scan
+(1 row)
+
+--Testcase 86:
+select max(unique1) from tenk1;
+ max  
+------
+ 9999
+(1 row)
+
+--Testcase 87:
+explain (costs off)
+  select max(unique1) from tenk1 where unique1 < 42;
+  QUERY PLAN  
+--------------
+ Foreign Scan
+(1 row)
+
+--Testcase 88:
+select max(unique1) from tenk1 where unique1 < 42;
+ max 
+-----
+  41
+(1 row)
+
+--Testcase 89:
+explain (costs off)
+  select max(unique1) from tenk1 where unique1 > 42;
+  QUERY PLAN  
+--------------
+ Foreign Scan
+(1 row)
+
+--Testcase 90:
+select max(unique1) from tenk1 where unique1 > 42;
+ max  
+------
+ 9999
+(1 row)
+
+-- the planner may choose a generic aggregate here if parallel query is
+-- enabled, since that plan will be parallel safe and the "optimized"
+-- plan, which has almost identical cost, will not be.  we want to test
+-- the optimized plan, so temporarily disable parallel query.
+-- multi-column index (uses tenk1_thous_tenthous)
+--Testcase 91:
+explain (costs off)
+  select max(tenthous) from tenk1 where thousand = 33;
+  QUERY PLAN  
+--------------
+ Foreign Scan
+(1 row)
+
+--Testcase 92:
+select max(tenthous) from tenk1 where thousand = 33;
+ max  
+------
+ 9033
+(1 row)
+
+--Testcase 93:
+explain (costs off)
+  select min(tenthous) from tenk1 where thousand = 33;
+  QUERY PLAN  
+--------------
+ Foreign Scan
+(1 row)
+
+--Testcase 94:
+select min(tenthous) from tenk1 where thousand = 33;
+ min 
+-----
+  33
+(1 row)
+
+-- check parameter propagation into an indexscan subquery
+--Testcase 95:
+explain (costs off)
+  select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
+    from int4_tbl;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Foreign Scan on int4_tbl
+   SubPlan 1
+     ->  Aggregate
+           ->  Foreign Scan on tenk1
+                 Filter: (unique1 > int4_tbl.f1)
+(5 rows)
+
+--Testcase 96:
+select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
+  from int4_tbl;
+     f1      | gt 
+-------------+----
+           0 |  1
+      123456 |   
+     -123456 |  0
+  2147483647 |   
+ -2147483647 |  0
+(5 rows)
+
+-- check some cases that were handled incorrectly in 8.3.0
+--Testcase 97:
+explain (costs off)
+  select distinct max(unique2) from tenk1;
+            QUERY PLAN            
+----------------------------------
+ Unique
+   ->  Sort
+         Sort Key: (max(unique2))
+         ->  Foreign Scan
+(4 rows)
+
+--Testcase 98:
+select distinct max(unique2) from tenk1;
+ max  
+------
+ 9999
+(1 row)
+
+-- interesting corner case: constant gets optimized into a seqscan
+--Testcase 99:
+explain (costs off)
+  select max(100) from tenk1;
+  QUERY PLAN  
+--------------
+ Foreign Scan
+(1 row)
+
+--Testcase 100:
+select max(100) from tenk1;
+ max 
+-----
+ 100
+(1 row)
+
+-- check for correct detection of nested-aggregate errors
+--Testcase 101:
+EXPLAIN VERBOSE select max(min(unique1)) from tenk1;
+psql:sql/15.0/aggregates.sql:353: ERROR:  aggregate function calls cannot be nested
+LINE 1: EXPLAIN VERBOSE select max(min(unique1)) from tenk1;
+                                   ^
+--Testcase 102:
+select max(min(unique1)) from tenk1;
+psql:sql/15.0/aggregates.sql:355: ERROR:  aggregate function calls cannot be nested
+LINE 1: select max(min(unique1)) from tenk1;
+                   ^
+--Testcase 103:
+EXPLAIN VERBOSE select (select max(min(unique1)) from int8_tbl) from tenk1;
+psql:sql/15.0/aggregates.sql:357: ERROR:  aggregate function calls cannot be nested
+LINE 1: EXPLAIN VERBOSE select (select max(min(unique1)) from int8_t...
+                                           ^
+--Testcase 104:
+select (select max(min(unique1)) from int8_tbl) from tenk1;
+psql:sql/15.0/aggregates.sql:359: ERROR:  aggregate function calls cannot be nested
+LINE 1: select (select max(min(unique1)) from int8_tbl) from tenk1;
+                           ^
+--
+-- Test combinations of DISTINCT and/or ORDER BY
+--
+--Testcase 105:
+CREATE FOREIGN TABLE agg_fns_1(id int, a int) SERVER :DB_SERVERNAME
+  OPTIONS (table_name 'agg_fns_1');
+--Testcase 184:
+INSERT INTO agg_fns_1 VALUES (1, 1);
+--Testcase 185:
+INSERT INTO agg_fns_1 VALUES (2, 2);
+--Testcase 186:
+INSERT INTO agg_fns_1 VALUES (3, 1);
+--Testcase 187:
+INSERT INTO agg_fns_1 VALUES (4, 3);
+--Testcase 188:
+INSERT INTO agg_fns_1 VALUES (5, null);
+--Testcase 189:
+INSERT INTO agg_fns_1 VALUES (6, 2);
+--Testcase 106:
+select array_agg(distinct a) from agg_fns_1;
+  array_agg   
+--------------
+ {1,2,3,NULL}
+(1 row)
+
+-- check node I/O via view creation and usage, also deparsing logic
+--Testcase 107:
+CREATE FOREIGN TABLE agg_fns_2(a int, b int, c text) SERVER :DB_SERVERNAME
+  OPTIONS (table_name 'agg_fns_2');
+--Testcase 190:
+INSERT INTO agg_fns_2 VALUES (1, 3, 'foo');
+--Testcase 191:
+INSERT INTO agg_fns_2 VALUES (0, null, null);
+--Testcase 192:
+INSERT INTO agg_fns_2 VALUES (2, 2, 'bar');
+--Testcase 193:
+INSERT INTO agg_fns_2 VALUES (3, 1, 'baz');
+--Testcase 108:
+create type aggtype as (a integer, b integer, c text);
+--Testcase 109:
+create function aggfns_trans(aggtype[],integer,integer,text) returns aggtype[]
+as 'select array_append($1,ROW($2,$3,$4)::aggtype)'
+language sql immutable;
+--Testcase 110:
+create aggregate aggfns(integer,integer,text) (
+   sfunc = aggfns_trans, stype = aggtype[], sspace = 10000,
+   initcond = '{}'
+);
+--Testcase 111:
+create view agg_view1 as
+  select aggfns(a,b,c) from agg_fns_2;
+--Testcase 112:
+EXPLAIN VERBOSE select * from agg_view1;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Aggregate  (cost=468.40..468.41 rows=1 width=32)
+   Output: aggfns(agg_fns_2.a, agg_fns_2.b, agg_fns_2.c)
+   ->  Foreign Scan on public.agg_fns_2  (cost=100.00..148.40 rows=1280 width=40)
+         Output: agg_fns_2.a, agg_fns_2.b, agg_fns_2.c
+         Remote SQL: SELECT a, b, c FROM agg_fns_2
+(5 rows)
+
+--Testcase 113:
+select * from agg_view1;
+                    aggfns                     
+-----------------------------------------------
+ {"(1,3,foo)","(0,,)","(2,2,bar)","(3,1,baz)"}
+(1 row)
+
+--Testcase 114:
+EXPLAIN VERBOSE select pg_get_viewdef('agg_view1'::regclass);
+                QUERY PLAN                 
+-------------------------------------------
+ Result  (cost=0.00..0.01 rows=1 width=32)
+   Output: pg_get_viewdef('16461'::oid)
+(2 rows)
+
+--Testcase 115:
+select pg_get_viewdef('agg_view1'::regclass);
+                         pg_get_viewdef                          
+-----------------------------------------------------------------
+  SELECT aggfns(agg_fns_2.a, agg_fns_2.b, agg_fns_2.c) AS aggfns+
+    FROM agg_fns_2;
+(1 row)
+
+--Testcase 116:
+create or replace view agg_view1 as
+  select aggfns(distinct a,b,c) from agg_fns_2, generate_series(1,3) i;
+--Testcase 117:
+EXPLAIN VERBOSE select * from agg_view1;
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
+ Aggregate  (cost=1159.63..1159.64 rows=1 width=32)
+   Output: aggfns(DISTINCT agg_fns_2.a, agg_fns_2.b, agg_fns_2.c)
+   ->  Nested Loop  (cost=100.00..199.63 rows=3840 width=40)
+         Output: agg_fns_2.a, agg_fns_2.b, agg_fns_2.c
+         ->  Function Scan on pg_catalog.generate_series i  (cost=0.00..0.03 rows=3 width=0)
+               Output: i.i
+               Function Call: generate_series(1, 3)
+         ->  Materialize  (cost=100.00..154.80 rows=1280 width=40)
+               Output: agg_fns_2.a, agg_fns_2.b, agg_fns_2.c
+               ->  Foreign Scan on public.agg_fns_2  (cost=100.00..148.40 rows=1280 width=40)
+                     Output: agg_fns_2.a, agg_fns_2.b, agg_fns_2.c
+                     Remote SQL: SELECT a, b, c FROM agg_fns_2
+(12 rows)
+
+--Testcase 118:
+select * from agg_view1;
+                    aggfns                     
+-----------------------------------------------
+ {"(0,,)","(1,3,foo)","(2,2,bar)","(3,1,baz)"}
+(1 row)
+
+--Testcase 119:
+EXPLAIN VERBOSE select pg_get_viewdef('agg_view1'::regclass);
+                QUERY PLAN                 
+-------------------------------------------
+ Result  (cost=0.00..0.01 rows=1 width=32)
+   Output: pg_get_viewdef('16461'::oid)
+(2 rows)
+
+--Testcase 120:
+select pg_get_viewdef('agg_view1'::regclass);
+                              pg_get_viewdef                              
+--------------------------------------------------------------------------
+  SELECT aggfns(DISTINCT agg_fns_2.a, agg_fns_2.b, agg_fns_2.c) AS aggfns+
+    FROM agg_fns_2,                                                      +
+     generate_series(1, 3) i(i);
+(1 row)
+
+--Testcase 121:
+drop view agg_view1;
+-- string_agg tests
+--Testcase 122:
+CREATE FOREIGN TABLE string_agg1(id int, a text) SERVER :DB_SERVERNAME
+  OPTIONS (table_name 'string_agg1');
+--Testcase 194:
+INSERT INTO string_agg1 VALUES (1, 'aaaa');
+--Testcase 195:
+INSERT INTO string_agg1 VALUES (2, 'bbbb');
+--Testcase 196:
+INSERT INTO string_agg1 VALUES (3, 'cccc');
+--Testcase 123:
+CREATE FOREIGN TABLE string_agg2(id int, a text) SERVER :DB_SERVERNAME
+  OPTIONS (table_name 'string_agg2');
+--Testcase 197:
+INSERT INTO string_agg2 VALUES (1, 'aaaa');
+--Testcase 198:
+INSERT INTO string_agg2 VALUES (2, null);
+--Testcase 199:
+INSERT INTO string_agg2 VALUES (3, 'bbbb');
+--Testcase 200:
+INSERT INTO string_agg2 VALUES (4, 'cccc');
+--Testcase 124:
+CREATE FOREIGN TABLE string_agg3(id int, a text) SERVER :DB_SERVERNAME
+  OPTIONS ( table_name 'string_agg3');
+--Testcase 201:
+INSERT INTO string_agg3 VALUES (1, null);
+--Testcase 202:
+INSERT INTO string_agg3 VALUES (2, null);
+--Testcase 203:
+INSERT INTO string_agg3 VALUES (3, 'bbbb');
+--Testcase 204:
+INSERT INTO string_agg3 VALUES (4, 'cccc');
+--Testcase 125:
+CREATE FOREIGN TABLE string_agg4(id int, a text) SERVER :DB_SERVERNAME
+  OPTIONS (table_name 'string_agg4');
+--Testcase 205:
+INSERT INTO string_agg4 VALUES (1, null);
+--Testcase 206:
+INSERT INTO string_agg4 VALUES (2, null);
+--Testcase 126:
+EXPLAIN VERBOSE select string_agg(a,',') from string_agg1;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(a, ','::text)
+   ->  Foreign Scan on public.string_agg1  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, a
+         Remote SQL: SELECT a FROM string_agg1
+(5 rows)
+
+--Testcase 127:
+select string_agg(a,',') from string_agg1;
+   string_agg   
+----------------
+ aaaa,bbbb,cccc
+(1 row)
+
+--Testcase 128:
+EXPLAIN VERBOSE select string_agg(a,',') from string_agg2;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(a, ','::text)
+   ->  Foreign Scan on public.string_agg2  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, a
+         Remote SQL: SELECT a FROM string_agg2
+(5 rows)
+
+--Testcase 129:
+select string_agg(a,',') from string_agg2;
+   string_agg   
+----------------
+ aaaa,bbbb,cccc
+(1 row)
+
+--Testcase 130:
+EXPLAIN VERBOSE select string_agg(a,'AB') from string_agg3;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(a, 'AB'::text)
+   ->  Foreign Scan on public.string_agg3  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, a
+         Remote SQL: SELECT a FROM string_agg3
+(5 rows)
+
+--Testcase 131:
+select string_agg(a,'AB') from string_agg3;
+ string_agg 
+------------
+ bbbbABcccc
+(1 row)
+
+--Testcase 132:
+EXPLAIN VERBOSE select string_agg(a,',') from string_agg4;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(a, ','::text)
+   ->  Foreign Scan on public.string_agg4  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, a
+         Remote SQL: SELECT a FROM string_agg4
+(5 rows)
+
+--Testcase 133:
+select string_agg(a,',') from string_agg4;
+ string_agg 
+------------
+ 
+(1 row)
+
+-- string_agg bytea tests
+--Testcase 134:
+create foreign table bytea_test_table(id int OPTIONS (key 'true'), v bytea) SERVER :DB_SERVERNAME
+  OPTIONS (table_name 'bytea_test_table');
+--Testcase 135:
+EXPLAIN VERBOSE select string_agg(v, '') from bytea_test_table;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(v, '\x'::bytea)
+   ->  Foreign Scan on public.bytea_test_table  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, v
+         Remote SQL: SELECT v FROM bytea_test_table
+(5 rows)
+
+--Testcase 136:
+select string_agg(v, '') from bytea_test_table;
+ string_agg 
+------------
+ 
+(1 row)
+
+--Testcase 137:
+EXPLAIN VERBOSE insert into bytea_test_table (id, v) values(1, decode('ff','hex'));
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Insert on public.bytea_test_table  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO bytea_test_table(id, v) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=36)
+         Output: 1, '\xff'::bytea
+(4 rows)
+
+--Testcase 138:
+insert into bytea_test_table (id, v) values(1, decode('ff','hex'));
+--Testcase 139:
+EXPLAIN VERBOSE select string_agg(v, '') from bytea_test_table;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(v, '\x'::bytea)
+   ->  Foreign Scan on public.bytea_test_table  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, v
+         Remote SQL: SELECT v FROM bytea_test_table
+(5 rows)
+
+--Testcase 140:
+select string_agg(v, '') from bytea_test_table;
+ string_agg 
+------------
+ \xff
+(1 row)
+
+--Testcase 141:
+EXPLAIN VERBOSE insert into bytea_test_table (id, v) values(2, decode('aa','hex'));
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Insert on public.bytea_test_table  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO bytea_test_table(id, v) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=36)
+         Output: 2, '\xaa'::bytea
+(4 rows)
+
+--Testcase 142:
+insert into bytea_test_table (id, v) values(2, decode('aa','hex'));
+--Testcase 143:
+EXPLAIN VERBOSE select string_agg(v, '') from bytea_test_table;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(v, '\x'::bytea)
+   ->  Foreign Scan on public.bytea_test_table  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, v
+         Remote SQL: SELECT v FROM bytea_test_table
+(5 rows)
+
+--Testcase 144:
+select string_agg(v, '') from bytea_test_table;
+ string_agg 
+------------
+ \xffaa
+(1 row)
+
+--Testcase 145:
+EXPLAIN VERBOSE select string_agg(v, NULL) from bytea_test_table;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(v, NULL::bytea)
+   ->  Foreign Scan on public.bytea_test_table  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, v
+         Remote SQL: SELECT v FROM bytea_test_table
+(5 rows)
+
+--Testcase 146:
+select string_agg(v, NULL) from bytea_test_table;
+ string_agg 
+------------
+ \xffaa
+(1 row)
+
+--Testcase 147:
+EXPLAIN VERBOSE select string_agg(v, decode('ee', 'hex')) from bytea_test_table;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Aggregate  (cost=157.52..157.53 rows=1 width=32)
+   Output: string_agg(v, '\xee'::bytea)
+   ->  Foreign Scan on public.bytea_test_table  (cost=100.00..153.86 rows=1462 width=32)
+         Output: id, v
+         Remote SQL: SELECT v FROM bytea_test_table
+(5 rows)
+
+--Testcase 148:
+select string_agg(v, decode('ee', 'hex')) from bytea_test_table;
+ string_agg 
+------------
+ \xffeeaa
+(1 row)
+
+--Testcase 149:
+drop foreign table bytea_test_table;
+-- FILTER tests
+--Testcase 150:
+EXPLAIN VERBOSE select min(unique1) filter (where unique1 > 100) from tenk1;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=212.38..212.38 rows=1 width=4)
+   Output: min(unique1) FILTER (WHERE (unique1 > 100))
+   ->  Foreign Scan on public.tenk1  (cost=100.00..197.75 rows=2925 width=4)
+         Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+         Remote SQL: SELECT unique1 FROM tenk1
+(5 rows)
+
+--Testcase 151:
+select min(unique1) filter (where unique1 > 100) from tenk1;
+ min 
+-----
+ 101
+(1 row)
+
+--Testcase 152:
+EXPLAIN VERBOSE select sum(1/ten) filter (where ten > 0) from tenk1;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=219.69..219.70 rows=1 width=8)
+   Output: sum((1 / ten)) FILTER (WHERE (ten > 0))
+   ->  Foreign Scan on public.tenk1  (cost=100.00..197.75 rows=2925 width=4)
+         Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+         Remote SQL: SELECT ten FROM tenk1
+(5 rows)
+
+--Testcase 153:
+select sum(1/ten) filter (where ten > 0) from tenk1;
+ sum  
+------
+ 1000
+(1 row)
+
+-- outer reference in FILTER (PostgreSQL extension)
+--Testcase 154:
+EXPLAIN VERBOSE
+select
+  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1))
+     filter (where o.unique1 < 10))
+from tenk1 o;	
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=600020.19..600020.21 rows=1 width=4)
+   Output: (SubPlan 2)
+   ->  Foreign Scan on public.tenk1 o  (cost=100.00..197.75 rows=2925 width=4)
+         Output: o.unique1, o.unique2, o.two, o.four, o.ten, o.twenty, o.hundred, o.thousand, o.twothousand, o.fivethous, o.tenthous, o.odd, o.even, o.stringu1, o.stringu2, o.string4
+         Remote SQL: SELECT unique1 FROM tenk1
+   SubPlan 2
+     ->  Result  (cost=0.00..0.01 rows=1 width=4)
+           Output: max((SubPlan 1)) FILTER (WHERE (o.unique1 < 10))
+   SubPlan 1
+     ->  Foreign Scan on public.tenk1 i  (cost=100.00..205.06 rows=15 width=4)
+           Output: i.unique2
+           Filter: (i.unique1 = o.unique1)
+           Remote SQL: SELECT unique1, unique2 FROM tenk1
+(13 rows)
+
+--Testcase 155:
+select
+  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1))
+     filter (where o.unique1 < 10))
+from tenk1 o;					-- outer query is aggregation query
+ max  
+------
+ 9998
+(1 row)
+
+-- subquery in FILTER clause (PostgreSQL extension)
+--Testcase 156:
+EXPLAIN VERBOSE
+select sum(unique1) FILTER (WHERE
+  unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=380.88..380.88 rows=1 width=8)
+   Output: sum(tenk1.unique1) FILTER (WHERE (hashed SubPlan 1))
+   ->  Foreign Scan on public.tenk1  (cost=100.00..197.75 rows=2925 width=4)
+         Output: tenk1.unique1, tenk1.unique2, tenk1.two, tenk1.four, tenk1.ten, tenk1.twenty, tenk1.hundred, tenk1.thousand, tenk1.twothousand, tenk1.fivethous, tenk1.tenthous, tenk1.odd, tenk1.even, tenk1.stringu1, tenk1.stringu2, tenk1.string4
+         Remote SQL: SELECT unique1 FROM tenk1
+   SubPlan 1
+     ->  Foreign Scan on public.onek  (cost=100.00..166.06 rows=975 width=4)
+           Output: onek.unique1
+           Remote SQL: SELECT unique1 FROM onek WHERE ((unique1 < 100))
+(9 rows)
+
+--Testcase 157:
+select sum(unique1) FILTER (WHERE
+  unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
+ sum  
+------
+ 4950
+(1 row)
+
+-- variadic aggregates
+--Testcase 158:
+create function least_accum(int8, int8) returns int8 language sql as
+  'select least($1, $2)';
+--Testcase 159:
+create function least_accum(anyelement, variadic anyarray)
+returns anyelement language sql as
+  'select least($1, min($2[i])) from generate_subscripts($2,1) g(i)';
+--Testcase 160:
+create function cleast_accum(anycompatible, variadic anycompatiblearray)
+returns anycompatible language sql as
+  'select least($1, min($2[i])) from generate_subscripts($2,1) g(i)';
+--Testcase 161:
+create aggregate least_agg(int8) (
+  stype = int8, sfunc = least_accum
+);
+--Testcase 162:
+create aggregate least_agg(variadic items anyarray) (
+  stype = anyelement, sfunc = least_accum
+);
+--Testcase 163:
+create aggregate cleast_agg(variadic items anycompatiblearray) (
+  stype = anycompatible, sfunc = cleast_accum
+);
+--Testcase 164:
+EXPLAIN VERBOSE select least_agg(q1,q2) from int8_tbl;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Aggregate  (cost=683.44..683.45 rows=1 width=8)
+   Output: least_agg(VARIADIC ARRAY[q1, q2])
+   ->  Foreign Scan on public.int8_tbl  (cost=100.00..171.44 rows=2048 width=16)
+         Output: id, q1, q2
+         Remote SQL: SELECT q1, q2 FROM int8_tbl
+(5 rows)
+
+--Testcase 165:
+select least_agg(q1,q2) from int8_tbl;
+     least_agg     
+-------------------
+ -4567890123456789
+(1 row)
+
+--Testcase 166:
+EXPLAIN VERBOSE select least_agg(variadic array[q1,q2]) from int8_tbl;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Aggregate  (cost=683.44..683.45 rows=1 width=8)
+   Output: least_agg(VARIADIC ARRAY[q1, q2])
+   ->  Foreign Scan on public.int8_tbl  (cost=100.00..171.44 rows=2048 width=16)
+         Output: id, q1, q2
+         Remote SQL: SELECT q1, q2 FROM int8_tbl
+(5 rows)
+
+--Testcase 167:
+select least_agg(variadic array[q1,q2]) from int8_tbl;
+     least_agg     
+-------------------
+ -4567890123456789
+(1 row)
+
+--Testcase 168:
+EXPLAIN VERBOSE select cleast_agg(q1,q2) from int8_tbl;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Aggregate  (cost=683.44..683.45 rows=1 width=8)
+   Output: cleast_agg(VARIADIC ARRAY[q1, q2])
+   ->  Foreign Scan on public.int8_tbl  (cost=100.00..171.44 rows=2048 width=16)
+         Output: id, q1, q2
+         Remote SQL: SELECT q1, q2 FROM int8_tbl
+(5 rows)
+
+--Testcase 169:
+select cleast_agg(q1,q2) from int8_tbl;
+    cleast_agg     
+-------------------
+ -4567890123456789
+(1 row)
+
+--Testcase 170:
+EXPLAIN VERBOSE select cleast_agg(4.5,f1) from int4_tbl;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Aggregate  (cost=936.31..936.32 rows=1 width=32)
+   Output: cleast_agg(VARIADIC ARRAY[4.5, (f1)::numeric])
+   ->  Foreign Scan on public.int4_tbl  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, f1
+         Remote SQL: SELECT f1 FROM int4_tbl
+(5 rows)
+
+--Testcase 171:
+select cleast_agg(4.5,f1) from int4_tbl;
+ cleast_agg  
+-------------
+ -2147483647
+(1 row)
+
+--Testcase 172:
+EXPLAIN VERBOSE select cleast_agg(variadic array[4.5,f1]) from int4_tbl;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Aggregate  (cost=936.31..936.32 rows=1 width=32)
+   Output: cleast_agg(VARIADIC ARRAY[4.5, (f1)::numeric])
+   ->  Foreign Scan on public.int4_tbl  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, f1
+         Remote SQL: SELECT f1 FROM int4_tbl
+(5 rows)
+
+--Testcase 173:
+select cleast_agg(variadic array[4.5,f1]) from int4_tbl;
+ cleast_agg  
+-------------
+ -2147483647
+(1 row)
+
+--Testcase 174:
+EXPLAIN VERBOSE select pg_typeof(cleast_agg(variadic array[4.5,f1])) from int4_tbl;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Aggregate  (cost=936.31..936.33 rows=1 width=4)
+   Output: pg_typeof(cleast_agg(VARIADIC ARRAY[4.5, (f1)::numeric]))
+   ->  Foreign Scan on public.int4_tbl  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id, f1
+         Remote SQL: SELECT f1 FROM int4_tbl
+(5 rows)
+
+--Testcase 175:
+select pg_typeof(cleast_agg(variadic array[4.5,f1])) from int4_tbl;
+ pg_typeof 
+-----------
+ numeric
+(1 row)
+
+--Drop because other test file also create this function
+--Testcase 179:
+DROP AGGREGATE least_agg(variadic items anyarray);
+--Testcase 180:
+DROP AGGREGATE least_agg(int8);
+--Testcase 181:
+DROP FUNCTION least_accum(anyelement, variadic anyarray);
+--Testcase 182:
+DROP FUNCTION least_accum(int8, int8);
+-- Make sure that generation of HashAggregate for uniqification purposes
+-- does not lead to array overflow due to unexpected duplicate hash keys
+-- see CAFeeJoKKu0u+A_A9R9316djW-YW3-+Gtgvy3ju655qRHR3jtdA@mail.gmail.com
+--Testcase 209:
+set enable_memoize to off;
+--Testcase 176:
+explain (costs off)
+  select 1 from tenk1
+   where (hundred, thousand) in (select twothousand, twothousand from onek);
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Hash Join
+   Hash Cond: (tenk1.hundred = onek.twothousand)
+   ->  Foreign Scan on tenk1
+   ->  Hash
+         ->  HashAggregate
+               Group Key: onek.twothousand, onek.twothousand
+               ->  Foreign Scan on onek
+(7 rows)
+
+--Testcase 210:
+reset enable_memoize;  
+--Testcase 207:
+DROP TYPE aggtype CASCADE;
+psql:sql/15.0/aggregates.sql:645: NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to function aggfns_trans(aggtype[],integer,integer,text)
+drop cascades to function aggfns(integer,integer,text)
+--Testcase 208:
+DROP FUNCTION cleast_accum CASCADE;
+psql:sql/15.0/aggregates.sql:647: NOTICE:  drop cascades to function cleast_agg(anycompatiblearray)
+--Testcase 177:
+DROP SERVER :DB_SERVERNAME CASCADE;
+psql:sql/15.0/aggregates.sql:649: NOTICE:  drop cascades to 13 other objects
+DETAIL:  drop cascades to user mapping for public on server griddb_server
+drop cascades to foreign table onek
+drop cascades to foreign table aggtest
+drop cascades to foreign table tenk1
+drop cascades to foreign table int8_tbl
+drop cascades to foreign table int4_tbl
+drop cascades to foreign table bool_test
+drop cascades to foreign table agg_fns_1
+drop cascades to foreign table agg_fns_2
+drop cascades to foreign table string_agg1
+drop cascades to foreign table string_agg2
+drop cascades to foreign table string_agg3
+drop cascades to foreign table string_agg4
+--Testcase 178:
+DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

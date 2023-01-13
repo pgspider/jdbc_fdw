@@ -1,0 +1,618 @@
+--
+-- MySql
+-- UPDATE syntax tests
+--
+\set ECHO none
+\i sql/15.0/update.sql
+--
+-- UPDATE syntax tests
+--
+--Testcase 1:
+CREATE EXTENSION :DB_EXTENSIONNAME;
+--Testcase 2:
+CREATE SERVER :DB_SERVERNAME FOREIGN DATA WRAPPER :DB_EXTENSIONNAME OPTIONS(
+drivername :DB_DRIVERNAME,
+url :DB_URL,
+querytimeout '15',
+jarfile :DB_DRIVERPATH,
+maxheapsize '600'
+);
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS(username :DB_USER,password :DB_PASS);
+--Testcase 4:
+CREATE FOREIGN TABLE update_test (
+    id  serial OPTIONS (key 'true'),
+	  a   INT DEFAULT 10,
+    b   INT,
+    c   TEXT
+) SERVER :DB_SERVERNAME OPTIONS ( table_name 'update_test');
+--Testcase 6:
+EXPLAIN VERBOSE
+INSERT INTO update_test(a, b, c) VALUES (5, 10, 'foo');
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Insert on public.update_test  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO update_test(id, a, b, c) VALUES (?, ?, ?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=44)
+         Output: nextval('update_test_id_seq'::regclass), 5, 10, 'foo'::text
+(4 rows)
+
+--Testcase 7:
+INSERT INTO update_test(a, b, c)  VALUES (5, 10, 'foo');
+--Testcase 8:
+EXPLAIN VERBOSE
+INSERT INTO update_test(b, a) VALUES (15, 10);
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Insert on public.update_test  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO update_test(id, a, b, c) VALUES (?, ?, ?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=44)
+         Output: nextval('update_test_id_seq'::regclass), 10, 15, NULL::text
+(4 rows)
+
+--Testcase 9:
+INSERT INTO update_test(b, a) VALUES (15, 10);
+--Testcase 10:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 11:
+SELECT a, b, c FROM update_test;
+ a  | b  |  c  
+----+----+-----
+  5 | 10 | foo
+ 10 | 15 | 
+(2 rows)
+
+--Testcase 12:
+EXPLAIN VERBOSE
+UPDATE update_test SET a = DEFAULT, b = DEFAULT;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Update on public.update_test  (cost=100.00..135.59 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ?, b = ? WHERE id=?
+   ->  Foreign Scan on public.update_test  (cost=100.00..135.59 rows=853 width=80)
+         Output: 10, NULL::integer, id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test
+(5 rows)
+
+--Testcase 13:
+UPDATE update_test SET a = DEFAULT, b = DEFAULT;
+--Testcase 14:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 15:
+SELECT a, b, c FROM update_test;
+ a  | b |  c  
+----+---+-----
+ 10 |   | foo
+ 10 |   | 
+(2 rows)
+
+-- aliases for the UPDATE target table
+--Testcase 16:
+EXPLAIN VERBOSE
+UPDATE update_test AS t SET b = 10 WHERE t.a = 10;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Update on public.update_test t  (cost=100.00..120.74 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET b = ? WHERE id=?
+   ->  Foreign Scan on public.update_test t  (cost=100.00..120.74 rows=4 width=76)
+         Output: 10, id, t.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((a = 10))
+(5 rows)
+
+--Testcase 17:
+UPDATE update_test AS t SET b = 10 WHERE t.a = 10;
+--Testcase 18:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 19:
+SELECT a, b, c FROM update_test;
+ a  | b  |  c  
+----+----+-----
+ 10 | 10 | foo
+ 10 | 10 | 
+(2 rows)
+
+--Testcase 20:
+EXPLAIN VERBOSE
+UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Update on public.update_test t  (cost=100.00..120.33 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET b = ? WHERE id=?
+   ->  Foreign Scan on public.update_test t  (cost=100.00..120.33 rows=4 width=76)
+         Output: (b + 10), id, t.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((a = 10))
+(5 rows)
+
+--Testcase 21:
+UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10;
+--Testcase 22:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 23:
+SELECT a, b, c FROM update_test;
+ a  | b  |  c  
+----+----+-----
+ 10 | 20 | foo
+ 10 | 20 | 
+(2 rows)
+
+--
+-- Test VALUES in FROM
+--
+--Testcase 24:
+EXPLAIN VERBOSE
+UPDATE update_test SET a=v.i FROM (VALUES(100, 20)) AS v(i, j)
+  WHERE update_test.b = v.j;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Update on public.update_test  (cost=100.00..120.74 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ? WHERE id=?
+   ->  Foreign Scan on public.update_test  (cost=100.00..120.74 rows=4 width=76)
+         Output: 100, update_test.id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((b = 20))
+(5 rows)
+
+--Testcase 25:
+UPDATE update_test SET a=v.i FROM (VALUES(100, 20)) AS v(i, j)
+  WHERE update_test.b = v.j;
+--Testcase 26:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 27:
+SELECT a, b, c FROM update_test;
+  a  | b  |  c  
+-----+----+-----
+ 100 | 20 | foo
+ 100 | 20 | 
+(2 rows)
+
+-- fail, wrong data type:
+--Testcase 28:
+EXPLAIN VERBOSE
+UPDATE update_test SET a = v.* FROM (VALUES(100, 20)) AS v(i, j)
+  WHERE update_test.b = v.j;
+psql:sql/15.0/update.sql:90: ERROR:  column "a" is of type integer but expression is of type record
+LINE 2: UPDATE update_test SET a = v.* FROM (VALUES(100, 20)) AS v(i...
+                                   ^
+HINT:  You will need to rewrite or cast the expression.
+--Testcase 29:
+UPDATE update_test SET a = v.* FROM (VALUES(100, 20)) AS v(i, j)
+  WHERE update_test.b = v.j;
+psql:sql/15.0/update.sql:93: ERROR:  column "a" is of type integer but expression is of type record
+LINE 1: UPDATE update_test SET a = v.* FROM (VALUES(100, 20)) AS v(i...
+                                   ^
+HINT:  You will need to rewrite or cast the expression.
+--
+-- Test multiple-set-clause syntax
+--
+--Testcase 30:
+EXPLAIN VERBOSE
+INSERT INTO update_test(a, b, c)  SELECT a,b+1,c FROM update_test;
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Insert on public.update_test  (cost=100.00..158.00 rows=0 width=0)
+   Remote SQL: INSERT INTO update_test(id, a, b, c) VALUES (?, ?, ?, ?)
+   ->  Foreign Scan on public.update_test update_test_1  (cost=100.00..158.00 rows=1280 width=44)
+         Output: nextval('update_test_id_seq'::regclass), update_test_1.a, (update_test_1.b + 1), update_test_1.c
+         Remote SQL: SELECT a, b, c FROM update_test
+(5 rows)
+
+--Testcase 31:
+INSERT INTO update_test(a, b, c)  SELECT a,b+1,c FROM update_test;
+--Testcase 32:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 33:
+SELECT a, b, c FROM update_test;
+  a  | b  |  c  
+-----+----+-----
+ 100 | 20 | foo
+ 100 | 20 | 
+ 100 | 21 | foo
+ 100 | 21 | 
+(4 rows)
+
+--Testcase 34:
+EXPLAIN VERBOSE
+UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo';
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Update on public.update_test  (cost=100.00..120.33 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ?, b = ?, c = ? WHERE id=?
+   ->  Foreign Scan on public.update_test  (cost=100.00..120.33 rows=4 width=112)
+         Output: 10, (b + 11), 'bugle'::text, id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((c = 'foo'))
+(5 rows)
+
+--Testcase 35:
+UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo';
+--Testcase 36:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 37:
+SELECT a, b, c FROM update_test;
+  a  | b  |   c   
+-----+----+-------
+  10 | 31 | bugle
+ 100 | 20 | 
+  10 | 32 | bugle
+ 100 | 21 | 
+(4 rows)
+
+--Testcase 38:
+EXPLAIN VERBOSE
+UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Update on public.update_test  (cost=100.00..119.94 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ?, b = ?, c = ? WHERE id=?
+   ->  Foreign Scan on public.update_test  (cost=100.00..119.94 rows=4 width=112)
+         Output: (a + 1), (a + b), 'car'::text, id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((a = 10))
+(5 rows)
+
+--Testcase 39:
+UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10;
+--Testcase 40:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 41:
+SELECT a, b, c FROM update_test;
+  a  | b  |  c  
+-----+----+-----
+  11 | 41 | car
+ 100 | 20 | 
+  11 | 42 | car
+ 100 | 21 | 
+(4 rows)
+
+-- fail, multi assignment to same column:
+--Testcase 42:
+EXPLAIN VERBOSE
+UPDATE update_test SET (c,b) = ('car', a+b), b = a + 1 WHERE a = 10;
+psql:sql/15.0/update.sql:130: ERROR:  multiple assignments to same column "b"
+--Testcase 43:
+UPDATE update_test SET (c,b) = ('car', a+b), b = a + 1 WHERE a = 10;
+psql:sql/15.0/update.sql:132: ERROR:  multiple assignments to same column "b"
+-- uncorrelated sub-select:
+--Testcase 44:
+EXPLAIN VERBOSE
+UPDATE update_test
+  SET (b,a) = (select a,b from update_test where b = 41 and c = 'car')
+  WHERE a = 100 AND b = 20;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Update on public.update_test  (cost=248.42..271.24 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ?, b = ? WHERE id=?
+   InitPlan 1 (returns $0,$1)
+     ->  Foreign Scan on public.update_test update_test_1  (cost=100.00..148.42 rows=1 width=8)
+           Output: update_test_1.a, update_test_1.b
+           Remote SQL: SELECT a, b FROM update_test WHERE ((b = 41)) AND ((c = 'car'))
+   ->  Foreign Scan on public.update_test  (cost=100.00..122.82 rows=1 width=112)
+         Output: $1, $0, NULL::record, update_test.id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((a = 100)) AND ((b = 20))
+(9 rows)
+
+--Testcase 45:
+UPDATE update_test
+  SET (b,a) = (select a,b from update_test where b = 41 and c = 'car')
+  WHERE a = 100 AND b = 20;
+--Testcase 46:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 47:
+SELECT a, b, c FROM update_test;
+  a  | b  |  c  
+-----+----+-----
+  11 | 41 | car
+  41 | 11 | 
+  11 | 42 | car
+ 100 | 21 | 
+(4 rows)
+
+-- correlated sub-select:
+--Testcase 48:
+EXPLAIN VERBOSE
+UPDATE update_test o
+  SET (b,a) = (select a+1,b from update_test i
+               where i.a=o.a and i.b=o.b and i.c is not distinct from o.c);
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Update on public.update_test o  (cost=100.00..124141.57 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ?, b = ? WHERE id=?
+   ->  Foreign Scan on public.update_test o  (cost=100.00..124141.57 rows=602 width=112)
+         Output: $4, $3, (SubPlan 1 (returns $3,$4)), o.id, o.*
+         Remote SQL: SELECT id, a, b, c FROM update_test
+         SubPlan 1 (returns $3,$4)
+           ->  Foreign Scan on public.update_test i  (cost=100.00..206.00 rows=1 width=8)
+                 Output: (i.a + 1), i.b
+                 Filter: ((NOT (i.c IS DISTINCT FROM o.c)) AND (i.a = o.a) AND (i.b = o.b))
+                 Remote SQL: SELECT a, b, c FROM update_test
+(10 rows)
+
+--Testcase 49:
+UPDATE update_test o
+  SET (b,a) = (select a+1,b from update_test i
+               where i.a=o.a and i.b=o.b and i.c is not distinct from o.c);
+--Testcase 50:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 51:
+SELECT a, b, c FROM update_test;
+ a  |  b  |  c  
+----+-----+-----
+ 41 |  12 | car
+ 11 |  42 | 
+ 42 |  12 | car
+ 21 | 101 | 
+(4 rows)
+
+-- fail, multiple rows supplied:
+--Testcase 52:
+EXPLAIN VERBOSE
+UPDATE update_test SET (b,a) = (select a+1,b from update_test);
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Update on public.update_test  (cost=293.20..328.79 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ?, b = ? WHERE id=?
+   InitPlan 1 (returns $0,$1)
+     ->  Foreign Scan on public.update_test update_test_1  (cost=100.00..193.20 rows=2560 width=8)
+           Output: (update_test_1.a + 1), update_test_1.b
+           Remote SQL: SELECT a, b FROM update_test
+   ->  Foreign Scan on public.update_test  (cost=100.00..135.59 rows=853 width=112)
+         Output: $1, $0, NULL::record, update_test.id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test
+(9 rows)
+
+--Testcase 53:
+UPDATE update_test SET (b,a) = (select a+1,b from update_test);
+psql:sql/15.0/update.sql:168: ERROR:  more than one row returned by a subquery used as an expression
+-- set to null if no rows supplied:
+--Testcase 54:
+EXPLAIN VERBOSE
+UPDATE update_test SET (b,a) = (select a+1,b from update_test where a = 1000)
+  WHERE a = 11;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Update on public.update_test  (cost=242.29..263.03 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ?, b = ? WHERE id=?
+   InitPlan 1 (returns $0,$1)
+     ->  Foreign Scan on public.update_test update_test_1  (cost=100.00..142.29 rows=13 width=8)
+           Output: (update_test_1.a + 1), update_test_1.b
+           Remote SQL: SELECT a, b FROM update_test WHERE ((a = 1000))
+   ->  Foreign Scan on public.update_test  (cost=100.00..120.74 rows=4 width=112)
+         Output: $1, $0, NULL::record, update_test.id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((a = 11))
+(9 rows)
+
+--Testcase 55:
+UPDATE update_test SET (b,a) = (select a+1,b from update_test where a = 1000)
+  WHERE a = 11;
+--Testcase 56:
+EXPLAIN VERBOSE
+SELECT a, b, c FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..148.40 rows=1280 width=40)
+   Output: a, b, c
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 57:
+SELECT a, b, c FROM update_test;
+ a  |  b  |  c  
+----+-----+-----
+ 41 |  12 | car
+    |     | 
+ 42 |  12 | car
+ 21 | 101 | 
+(4 rows)
+
+-- *-expansion should work in this context:
+--Testcase 58:
+EXPLAIN VERBOSE
+UPDATE update_test SET (a,b) = ROW(v.*) FROM (VALUES(21, 100)) AS v(i, j)
+  WHERE update_test.a = v.i;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Update on public.update_test  (cost=100.00..120.74 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET a = ?, b = ? WHERE id=?
+   ->  Foreign Scan on public.update_test  (cost=100.00..120.74 rows=4 width=80)
+         Output: 21, 100, update_test.id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((a = 21))
+(5 rows)
+
+--Testcase 59:
+UPDATE update_test SET (a,b) = ROW(v.*) FROM (VALUES(21, 100)) AS v(i, j)
+  WHERE update_test.a = v.i;
+-- you might expect this to work, but syntactically it's not a RowExpr:
+--Testcase 60:
+EXPLAIN VERBOSE
+UPDATE update_test SET (a,b) = (v.*) FROM (VALUES(21, 101)) AS v(i, j)
+  WHERE update_test.a = v.i;
+psql:sql/15.0/update.sql:194: ERROR:  source for a multiple-column UPDATE item must be a sub-SELECT or ROW() expression
+LINE 2: UPDATE update_test SET (a,b) = (v.*) FROM (VALUES(21, 101)) ...
+                                        ^
+--Testcase 61:
+UPDATE update_test SET (a,b) = (v.*) FROM (VALUES(21, 101)) AS v(i, j)
+  WHERE update_test.a = v.i;
+psql:sql/15.0/update.sql:197: ERROR:  source for a multiple-column UPDATE item must be a sub-SELECT or ROW() expression
+LINE 1: UPDATE update_test SET (a,b) = (v.*) FROM (VALUES(21, 101)) ...
+                                        ^
+-- if an alias for the target table is specified, don't allow references
+-- to the original table name
+--Testcase 62:
+EXPLAIN VERBOSE
+UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a = 10;
+psql:sql/15.0/update.sql:202: ERROR:  invalid reference to FROM-clause entry for table "update_test"
+LINE 2: UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a...
+                                        ^
+HINT:  Perhaps you meant to reference the table alias "t".
+--Testcase 63:
+UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a = 10;
+psql:sql/15.0/update.sql:204: ERROR:  invalid reference to FROM-clause entry for table "update_test"
+LINE 1: UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a...
+                                        ^
+HINT:  Perhaps you meant to reference the table alias "t".
+-- Make sure that we can update to a TOASTed value.
+--Testcase 64:
+EXPLAIN VERBOSE
+UPDATE update_test SET c = repeat('x', 10000) WHERE c = 'car';
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on public.update_test  (cost=100.00..120.74 rows=0 width=0)
+   Remote SQL: UPDATE update_test SET c = ? WHERE id=?
+   ->  Foreign Scan on public.update_test  (cost=100.00..120.74 rows=4 width=104)
+         Output: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'::text, id, update_test.*
+         Remote SQL: SELECT id, a, b, c FROM update_test WHERE ((c = 'car'))
+(5 rows)
+
+--Testcase 65:
+UPDATE update_test SET c = repeat('x', 10000) WHERE c = 'car';
+--Testcase 66:
+EXPLAIN VERBOSE
+SELECT a, b, char_length(c) FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..151.60 rows=1280 width=12)
+   Output: a, b, char_length(c)
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 67:
+SELECT a, b, char_length(c) FROM update_test;
+ a  |  b  | char_length 
+----+-----+-------------
+ 41 |  12 |       10000
+    |     |            
+ 42 |  12 |       10000
+ 21 | 100 |            
+(4 rows)
+
+-- Check multi-assignment with a Result node to handle a one-time filter.
+--Testcase 68:
+EXPLAIN (VERBOSE, COSTS OFF)
+UPDATE update_test t
+  SET (a, b) = (SELECT b, a FROM update_test s WHERE s.a = t.a)
+  WHERE CURRENT_USER = SESSION_USER;
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Update on public.update_test t
+   Remote SQL: UPDATE update_test SET a = ?, b = ? WHERE id=?
+   ->  Result
+         Output: $1, $2, (SubPlan 1 (returns $1,$2)), t.id, t.*
+         One-Time Filter: (CURRENT_USER = SESSION_USER)
+         ->  Foreign Scan on public.update_test t
+               Output: t.a, t.id, t.*
+               Remote SQL: SELECT id, a, b, c FROM update_test
+         SubPlan 1 (returns $1,$2)
+           ->  Foreign Scan on public.update_test s
+                 Output: s.b, s.a
+                 Filter: (s.a = t.a)
+                 Remote SQL: SELECT a, b FROM update_test
+(13 rows)
+
+--Testcase 69:
+UPDATE update_test t
+  SET (a, b) = (SELECT b, a FROM update_test s WHERE s.a = t.a)
+  WHERE CURRENT_USER = SESSION_USER;
+--Testcase 70:
+EXPLAIN VERBOSE
+SELECT a, b, char_length(c) FROM update_test;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.update_test  (cost=100.00..151.60 rows=1280 width=12)
+   Output: a, b, char_length(c)
+   Remote SQL: SELECT a, b, c FROM update_test
+(3 rows)
+
+--Testcase 71:
+SELECT a, b, char_length(c) FROM update_test;
+  a  | b  | char_length 
+-----+----+-------------
+  12 | 41 |       10000
+     |    |            
+  12 | 42 |       10000
+ 100 | 21 |            
+(4 rows)
+
+--Testcase 74:
+DROP FOREIGN TABLE update_test;
+--Testcase 76:
+DROP SERVER :DB_SERVERNAME CASCADE;
+psql:sql/15.0/update.sql:236: NOTICE:  drop cascades to user mapping for public on server mysql_server
+--Testcase 77:
+DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

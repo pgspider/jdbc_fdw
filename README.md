@@ -1,7 +1,7 @@
 JDBC Foreign Data Wrapper for PostgreSQL
 =========================================
 * This PostgreSQL extension is a Foreign Data Wrapper (FDW) for JDBC.
-* The current version can work with PostgreSQL 13, 14.
+* The current version can work with PostgreSQL 14.
 * Java 5 or later is required (Confirmed version is Java OpenJDK 1.8.0).
 * This jdbc_fdw is based on [JDBC\_FDW](http://github.com/atris/JDBC_FDW.git), [jdbc2\_fdw](https://github.com/heimir-sverrisson/jdbc2_fdw).  
 
@@ -181,6 +181,23 @@ SELECT float4.f1 FROM tbl06 float4 WHERE float4.f1 <> '1004.3' GROUP BY float4.i
  1.23457e-20
 (4 rows)
 ```
+
+#### IMPORT FOREIGN SCHEMA
+Currently, IMPORT FOREIGN SCHEMA works only with GridDB.
+
+Usage Notes
+-----------
+#### Maximum digits storing float value of MySQL
+Maximum digits storing float value of MySQL is 6 digits. The stored value may not be the same as the value inserted.
+
+#### Variance function
+Variance function: For MySQL, variance function is alias for var_pop(). For PostgreSQL/GridDB, variance function is alias for var_samp(). Due to the different meaning of variance function between MySQL and PostgreSQL/GridDB, the result will be different.
+
+#### Concatenation Operator
+The || operator as a concatenation operator is standard SQL, however in MySQL, it represents the OR operator (logical operator). If the PIPES_AS_CONCAT SQL mode is enabled, || signifies the SQL-standard string concatenation operator (like CONCAT()). User needs to enable PIPES_AS_CONCAT mode in MySQL for concatenation.
+
+#### Timestamp range
+The MySQL timestamp range is not the same as the PostgreSQL timestamp range, so be careful if using this type. In MySQL, TIMESTAMP has a range of '1970-01-01 00:00:01' UTC to '2038-01-19 03:14:07' UTC.
 
 Reference
 ---------

@@ -23,7 +23,8 @@ export PGS_SRC_DIR="/home/jenkins/01_PostgreSQL/postgres-REL_13_0/"
 # SET GLOBAL time_zone = '-8:00';
 # SET GLOBAL log_bin_trust_function_creators = 1;
 # SET GLOBAL local_infile=1;
-# SET GLOBAL sql_mode='PIPES_AS_CONCAT';
+# SET GLOBAL sql_mode='TRADITIONAL';
+# SET GLOBAL sql_mode=(SELECT CONCAT(@@sql_mode, ',PIPES_AS_CONCAT'));
 
 mysql -h $MYSQL_HOST -u $MYSQL_USER_NAME -P $MYSQL_PORT -D $MYSQL_DB_NAME --local-infile=1 < $PGS_SRC_DIR/contrib/jdbc_fdw/init/mysql_init_post.sql
 mysql -h $MYSQL_HOST -u $MYSQL_USER_NAME -P $MYSQL_PORT -D $MYSQL_DB_NAME --local-infile=1 < $PGS_SRC_DIR/contrib/jdbc_fdw/init/mysql_init_core.sql

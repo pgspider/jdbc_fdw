@@ -1,0 +1,998 @@
+--
+-- MySql
+-- FLOAT8
+--
+\set ECHO none
+\i sql/14.5/float8.sql
+--
+-- FLOAT8
+--
+--Testcase 1:
+CREATE EXTENSION :DB_EXTENSIONNAME;
+--Testcase 2:
+CREATE SERVER :DB_SERVERNAME FOREIGN DATA WRAPPER :DB_EXTENSIONNAME OPTIONS(
+drivername :DB_DRIVERNAME,
+url :DB_URL,
+querytimeout '15',
+jarfile :DB_DRIVERPATH,
+maxheapsize '600'
+);
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS(username :DB_USER,password :DB_PASS);
+--Testcase 4:
+CREATE FOREIGN TABLE FLOAT8_TBL(id int4 OPTIONS (key 'true'), f1 float8) SERVER :DB_SERVERNAME OPTIONS (table_name 'float8_tbl');
+--Testcase 5:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (1, '    0.0   ');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 1, '0'::double precision
+(4 rows)
+
+--Testcase 6:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (1, '    0.0   ');
+--Testcase 7:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (2, '1004.30  ');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 2, '1004.3'::double precision
+(4 rows)
+
+--Testcase 8:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (2, '1004.30  ');
+--Testcase 9:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (3, '   -34.84');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 3, '-34.84'::double precision
+(4 rows)
+
+--Testcase 10:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (3, '   -34.84');
+--Testcase 11:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (4, '1.2345678901234e+200');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 4, '1.2345678901234e+200'::double precision
+(4 rows)
+
+--Testcase 12:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (4, '1.2345678901234e+200');
+--Testcase 13:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (5, '1.2345678901234e-200');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 5, '1.2345678901234e-200'::double precision
+(4 rows)
+
+--Testcase 14:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (5, '1.2345678901234e-200');
+-- bad input
+--Testcase 15:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (6, '');
+psql:sql/14.5/float8.sql:48: ERROR:  invalid input syntax for type double precision: ""
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (6, '');
+                                                  ^
+--Testcase 16:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (6, '');
+psql:sql/14.5/float8.sql:50: ERROR:  invalid input syntax for type double precision: ""
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (6, '');
+                                                  ^
+--Testcase 17:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (7, '     ');
+psql:sql/14.5/float8.sql:53: ERROR:  invalid input syntax for type double precision: "     "
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (7, '     ');
+                                                  ^
+--Testcase 18:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (7, '     ');
+psql:sql/14.5/float8.sql:55: ERROR:  invalid input syntax for type double precision: "     "
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (7, '     ');
+                                                  ^
+--Testcase 19:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (8, 'xyz');
+psql:sql/14.5/float8.sql:58: ERROR:  invalid input syntax for type double precision: "xyz"
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (8, 'xyz');
+                                                  ^
+--Testcase 20:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (8, 'xyz');
+psql:sql/14.5/float8.sql:60: ERROR:  invalid input syntax for type double precision: "xyz"
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (8, 'xyz');
+                                                  ^
+--Testcase 21:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (9, '5.0.0');
+psql:sql/14.5/float8.sql:63: ERROR:  invalid input syntax for type double precision: "5.0.0"
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (9, '5.0.0');
+                                                  ^
+--Testcase 22:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (9, '5.0.0');
+psql:sql/14.5/float8.sql:65: ERROR:  invalid input syntax for type double precision: "5.0.0"
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (9, '5.0.0');
+                                                  ^
+--Testcase 23:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (10, '5 . 0');
+psql:sql/14.5/float8.sql:68: ERROR:  invalid input syntax for type double precision: "5 . 0"
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (10, '5 . 0');
+                                                   ^
+--Testcase 24:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (10, '5 . 0');
+psql:sql/14.5/float8.sql:70: ERROR:  invalid input syntax for type double precision: "5 . 0"
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (10, '5 . 0');
+                                                   ^
+--Testcase 25:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (11, '5.   0');
+psql:sql/14.5/float8.sql:73: ERROR:  invalid input syntax for type double precision: "5.   0"
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (11, '5.   0');
+                                                   ^
+--Testcase 26:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (11, '5.   0');
+psql:sql/14.5/float8.sql:75: ERROR:  invalid input syntax for type double precision: "5.   0"
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (11, '5.   0');
+                                                   ^
+--Testcase 27:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (12, '    - 3');
+psql:sql/14.5/float8.sql:78: ERROR:  invalid input syntax for type double precision: "    - 3"
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (12, '    - 3');
+                                                   ^
+--Testcase 28:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (12, '    - 3');
+psql:sql/14.5/float8.sql:80: ERROR:  invalid input syntax for type double precision: "    - 3"
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (12, '    - 3');
+                                                   ^
+--Testcase 29:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (13, '123           5');
+psql:sql/14.5/float8.sql:83: ERROR:  invalid input syntax for type double precision: "123           5"
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (13, '123           5'...
+                                                   ^
+--Testcase 30:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (13, '123           5');
+psql:sql/14.5/float8.sql:85: ERROR:  invalid input syntax for type double precision: "123           5"
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (13, '123           5'...
+                                                   ^
+--Testcase 31:
+EXPLAIN VERBOSE
+SELECT f1 FROM FLOAT8_TBL;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl  (cost=100.00..186.80 rows=2560 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 32:
+SELECT f1 FROM FLOAT8_TBL;
+          f1          
+----------------------
+                    0
+               1004.3
+               -34.84
+ 1.2345678901234e+200
+ 1.2345678901234e-200
+(5 rows)
+
+--Testcase 33:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3';
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..192.94 rows=2547 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 <> 1004.3))
+(3 rows)
+
+--Testcase 34:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3';
+          f1          
+----------------------
+                    0
+               -34.84
+ 1.2345678901234e+200
+ 1.2345678901234e-200
+(4 rows)
+
+--Testcase 35:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE f.f1 = '1004.3';
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..142.26 rows=13 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 = 1004.3))
+(3 rows)
+
+--Testcase 36:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE f.f1 = '1004.3';
+   f1   
+--------
+ 1004.3
+(1 row)
+
+--Testcase 37:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE '1004.3' > f.f1;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..159.06 rows=853 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((1004.3 > f1))
+(3 rows)
+
+--Testcase 38:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE '1004.3' > f.f1;
+          f1          
+----------------------
+                    0
+               -34.84
+ 1.2345678901234e-200
+(3 rows)
+
+--Testcase 39:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3';
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..159.06 rows=853 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 < 1004.3))
+(3 rows)
+
+--Testcase 40:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3';
+          f1          
+----------------------
+                    0
+               -34.84
+ 1.2345678901234e-200
+(3 rows)
+
+--Testcase 41:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..159.06 rows=853 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((1004.3 >= f1))
+(3 rows)
+
+--Testcase 42:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1;
+          f1          
+----------------------
+                    0
+               1004.3
+               -34.84
+ 1.2345678901234e-200
+(4 rows)
+
+--Testcase 43:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE  f.f1 <= '1004.3';
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..159.06 rows=853 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 <= 1004.3))
+(3 rows)
+
+--Testcase 44:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE  f.f1 <= '1004.3';
+          f1          
+----------------------
+                    0
+               1004.3
+               -34.84
+ 1.2345678901234e-200
+(4 rows)
+
+--Testcase 45:
+EXPLAIN VERBOSE
+SELECT f.f1, f.f1 * '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..161.19 rows=853 width=16)
+   Output: f1, (f1 * '-10'::double precision)
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 > 0))
+(3 rows)
+
+--Testcase 46:
+SELECT f.f1, f.f1 * '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |           x           
+----------------------+-----------------------
+               1004.3 |                -10043
+ 1.2345678901234e+200 | -1.2345678901234e+201
+ 1.2345678901234e-200 | -1.2345678901234e-199
+(3 rows)
+
+--Testcase 47:
+EXPLAIN VERBOSE
+SELECT f.f1, f.f1 + '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..161.19 rows=853 width=16)
+   Output: f1, (f1 + '-10'::double precision)
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 > 0))
+(3 rows)
+
+--Testcase 48:
+SELECT f.f1, f.f1 + '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |          x           
+----------------------+----------------------
+               1004.3 |                994.3
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 |                  -10
+(3 rows)
+
+--Testcase 49:
+EXPLAIN VERBOSE
+SELECT f.f1, f.f1 / '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..161.19 rows=853 width=16)
+   Output: f1, (f1 / '-10'::double precision)
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 > 0))
+(3 rows)
+
+--Testcase 50:
+SELECT f.f1, f.f1 / '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |           x           
+----------------------+-----------------------
+               1004.3 |   -100.42999999999999
+ 1.2345678901234e+200 | -1.2345678901234e+199
+ 1.2345678901234e-200 | -1.2345678901234e-201
+(3 rows)
+
+--Testcase 51:
+EXPLAIN VERBOSE
+SELECT f.f1, f.f1 - '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..161.19 rows=853 width=16)
+   Output: f1, (f1 - '-10'::double precision)
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 > 0))
+(3 rows)
+
+--Testcase 52:
+SELECT f.f1, f.f1 - '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |          x           
+----------------------+----------------------
+               1004.3 |               1014.3
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 |                   10
+(3 rows)
+
+--Testcase 53:
+EXPLAIN VERBOSE
+SELECT f.f1 ^ '2.0' AS square_f1
+   FROM FLOAT8_TBL f where f.f1 = '1004.3';
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..142.29 rows=13 width=8)
+   Output: (f1 ^ '2'::double precision)
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 = 1004.3))
+(3 rows)
+
+--Testcase 54:
+SELECT f.f1 ^ '2.0' AS square_f1
+   FROM FLOAT8_TBL f where f.f1 = '1004.3';
+     square_f1      
+--------------------
+ 1008618.4899999999
+(1 row)
+
+-- absolute value
+--Testcase 55:
+EXPLAIN VERBOSE
+SELECT f.f1, @f.f1 AS abs_f1
+   FROM FLOAT8_TBL f;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=16)
+   Output: f1, (@ f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 56:
+SELECT f.f1, @f.f1 AS abs_f1
+   FROM FLOAT8_TBL f;
+          f1          |        abs_f1        
+----------------------+----------------------
+                    0 |                    0
+               1004.3 |               1004.3
+               -34.84 |                34.84
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 | 1.2345678901234e-200
+(5 rows)
+
+-- truncate
+--Testcase 57:
+EXPLAIN VERBOSE
+SELECT f.f1, trunc(f.f1) AS trunc_f1
+   FROM FLOAT8_TBL f;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=16)
+   Output: f1, trunc(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 58:
+SELECT f.f1, trunc(f.f1) AS trunc_f1
+   FROM FLOAT8_TBL f;
+          f1          |       trunc_f1       
+----------------------+----------------------
+                    0 |                    0
+               1004.3 |                 1004
+               -34.84 |                  -34
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 |                    0
+(5 rows)
+
+-- round
+--Testcase 59:
+EXPLAIN VERBOSE
+SELECT f.f1, round(f.f1) AS round_f1
+   FROM FLOAT8_TBL f;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=16)
+   Output: f1, round(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 60:
+SELECT f.f1, round(f.f1) AS round_f1
+   FROM FLOAT8_TBL f;
+          f1          |       round_f1       
+----------------------+----------------------
+                    0 |                    0
+               1004.3 |                 1004
+               -34.84 |                  -35
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 |                    0
+(5 rows)
+
+-- ceil / ceiling
+--Testcase 61:
+EXPLAIN VERBOSE
+select ceil(f1) as ceil_f1 from float8_tbl f;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=8)
+   Output: ceil(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 62:
+select ceil(f1) as ceil_f1 from float8_tbl f;
+       ceil_f1        
+----------------------
+                    0
+                 1005
+                  -34
+ 1.2345678901234e+200
+                    1
+(5 rows)
+
+--Testcase 63:
+EXPLAIN VERBOSE
+select ceiling(f1) as ceiling_f1 from float8_tbl f;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=8)
+   Output: ceiling(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 64:
+select ceiling(f1) as ceiling_f1 from float8_tbl f;
+      ceiling_f1      
+----------------------
+                    0
+                 1005
+                  -34
+ 1.2345678901234e+200
+                    1
+(5 rows)
+
+-- floor
+--Testcase 65:
+EXPLAIN VERBOSE
+select floor(f1) as floor_f1 from float8_tbl f;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=8)
+   Output: floor(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 66:
+select floor(f1) as floor_f1 from float8_tbl f;
+       floor_f1       
+----------------------
+                    0
+                 1004
+                  -35
+ 1.2345678901234e+200
+                    0
+(5 rows)
+
+-- sign
+--Testcase 67:
+EXPLAIN VERBOSE
+select sign(f1) as sign_f1 from float8_tbl f;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=8)
+   Output: sign(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 68:
+select sign(f1) as sign_f1 from float8_tbl f;
+ sign_f1 
+---------
+       0
+       1
+      -1
+       1
+       1
+(5 rows)
+
+-- avoid bit-exact output here because operations may not be bit-exact.
+--Testcase 69:
+SET extra_float_digits = 0;
+-- square root
+--Testcase 70:
+EXPLAIN VERBOSE
+SELECT sqrt(float8 '64') AS eight;
+                QUERY PLAN                
+------------------------------------------
+ Result  (cost=0.00..0.01 rows=1 width=8)
+   Output: '8'::double precision
+(2 rows)
+
+--Testcase 71:
+SELECT sqrt(float8 '64') AS eight;
+ eight 
+-------
+     8
+(1 row)
+
+--Testcase 72:
+EXPLAIN VERBOSE
+SELECT |/ float8 '64' AS eight;
+                QUERY PLAN                
+------------------------------------------
+ Result  (cost=0.00..0.01 rows=1 width=8)
+   Output: '8'::double precision
+(2 rows)
+
+--Testcase 73:
+SELECT |/ float8 '64' AS eight;
+ eight 
+-------
+     8
+(1 row)
+
+--Testcase 74:
+EXPLAIN VERBOSE
+SELECT f.f1, |/f.f1 AS sqrt_f1
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..161.19 rows=853 width=16)
+   Output: f1, (|/ f1)
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 > 0))
+(3 rows)
+
+--Testcase 75:
+SELECT f.f1, |/f.f1 AS sqrt_f1
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |        sqrt_f1        
+----------------------+-----------------------
+               1004.3 |      31.6906926399535
+ 1.2345678901234e+200 | 1.11111110611109e+100
+ 1.2345678901234e-200 | 1.11111110611109e-100
+(3 rows)
+
+-- take exp of ln(f.f1)
+--Testcase 76:
+EXPLAIN VERBOSE
+SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..163.32 rows=853 width=16)
+   Output: f1, exp(ln(f1))
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 > 0))
+(3 rows)
+
+--Testcase 77:
+SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |       exp_ln_f1       
+----------------------+-----------------------
+               1004.3 |                1004.3
+ 1.2345678901234e+200 | 1.23456789012338e+200
+ 1.2345678901234e-200 | 1.23456789012339e-200
+(3 rows)
+
+-- cube root
+--Testcase 78:
+EXPLAIN VERBOSE
+SELECT f.f1, ||/f.f1 AS cbrt_f1 FROM FLOAT8_TBL f;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=16)
+   Output: f1, (||/ f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 79:
+SELECT f.f1, ||/f.f1 AS cbrt_f1 FROM FLOAT8_TBL f;
+          f1          |       cbrt_f1        
+----------------------+----------------------
+                    0 |                    0
+               1004.3 |      10.014312837827
+               -34.84 |    -3.26607421344208
+ 1.2345678901234e+200 | 4.97933859234765e+66
+ 1.2345678901234e-200 |  2.3112042409018e-67
+(5 rows)
+
+--Testcase 80:
+EXPLAIN VERBOSE
+SELECT f1 FROM FLOAT8_TBL;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl  (cost=100.00..186.80 rows=2560 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 81:
+SELECT f1 FROM FLOAT8_TBL;
+          f1          
+----------------------
+                    0
+               1004.3
+               -34.84
+ 1.2345678901234e+200
+ 1.2345678901234e-200
+(5 rows)
+
+--Testcase 82:
+EXPLAIN VERBOSE
+UPDATE FLOAT8_TBL
+   SET f1 = FLOAT8_TBL.f1 * '-1'
+   WHERE FLOAT8_TBL.f1 > '0.0';
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Update on public.float8_tbl  (cost=100.00..132.74 rows=0 width=0)
+   Remote SQL: UPDATE float8_tbl SET f1 = ? WHERE id=?
+   ->  Foreign Scan on public.float8_tbl  (cost=100.00..132.74 rows=379 width=48)
+         Output: (f1 * '-1'::double precision), id, float8_tbl.*
+         Remote SQL: SELECT id, f1 FROM float8_tbl WHERE ((f1 > 0))
+(5 rows)
+
+--Testcase 83:
+UPDATE FLOAT8_TBL
+   SET f1 = FLOAT8_TBL.f1 * '-1'
+   WHERE FLOAT8_TBL.f1 > '0.0';
+--Testcase 84:
+EXPLAIN VERBOSE
+SELECT f.f1 * '1e200' from FLOAT8_TBL f;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=8)
+   Output: (f1 * '1e+200'::double precision)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 85:
+SELECT f.f1 * '1e200' from FLOAT8_TBL f;
+psql:sql/14.5/float8.sql:270: ERROR:  value out of range: overflow
+--Testcase 86:
+EXPLAIN VERBOSE
+SELECT f.f1 ^ '1e200' from FLOAT8_TBL f;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=8)
+   Output: (f1 ^ '1e+200'::double precision)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 87:
+SELECT f.f1 ^ '1e200' from FLOAT8_TBL f;
+psql:sql/14.5/float8.sql:275: ERROR:  value out of range: overflow
+--Testcase 88:
+EXPLAIN VERBOSE
+SELECT 0 ^ 0 + 0 ^ 1 + 0 ^ 0.0 + 0 ^ 0.5;
+                QUERY PLAN                
+------------------------------------------
+ Result  (cost=0.00..0.01 rows=1 width=8)
+   Output: '2'::double precision
+(2 rows)
+
+--Testcase 89:
+SELECT 0 ^ 0 + 0 ^ 1 + 0 ^ 0.0 + 0 ^ 0.5;
+ ?column? 
+----------
+        2
+(1 row)
+
+--Testcase 90:
+EXPLAIN VERBOSE
+SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 = '0.0' ;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..142.29 rows=13 width=8)
+   Output: ln(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 = 0))
+(3 rows)
+
+--Testcase 91:
+SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 = '0.0' ;
+psql:sql/14.5/float8.sql:285: ERROR:  cannot take logarithm of zero
+--Testcase 92:
+EXPLAIN VERBOSE
+SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0' ;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..161.19 rows=853 width=8)
+   Output: ln(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl WHERE ((f1 < 0))
+(3 rows)
+
+--Testcase 93:
+SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0' ;
+psql:sql/14.5/float8.sql:290: ERROR:  cannot take logarithm of a negative number
+--Testcase 94:
+EXPLAIN VERBOSE
+SELECT exp(f.f1) from FLOAT8_TBL f;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=8)
+   Output: exp(f1)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 95:
+SELECT exp(f.f1) from FLOAT8_TBL f;
+psql:sql/14.5/float8.sql:295: ERROR:  value out of range: underflow
+--Testcase 96:
+EXPLAIN VERBOSE
+SELECT f.f1 / '0.0' from FLOAT8_TBL f;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=100.00..193.20 rows=2560 width=8)
+   Output: (f1 / '0'::double precision)
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 97:
+SELECT f.f1 / '0.0' from FLOAT8_TBL f;
+psql:sql/14.5/float8.sql:300: ERROR:  division by zero
+--Testcase 98:
+EXPLAIN VERBOSE
+SELECT f1 FROM FLOAT8_TBL;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl  (cost=100.00..186.80 rows=2560 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 99:
+SELECT f1 FROM FLOAT8_TBL;
+          f1           
+-----------------------
+                     0
+               -1004.3
+                -34.84
+ -1.2345678901234e+200
+ -1.2345678901234e-200
+(5 rows)
+
+--Testcase 100:
+RESET extra_float_digits;
+-- test for over- and underflow
+--Testcase 101:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (14, '10e400');
+psql:sql/14.5/float8.sql:311: ERROR:  "10e400" is out of range for type double precision
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (14, '10e400');
+                                                   ^
+--Testcase 102:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (14, '10e400');
+psql:sql/14.5/float8.sql:313: ERROR:  "10e400" is out of range for type double precision
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (14, '10e400');
+                                                   ^
+--Testcase 103:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (15, '-10e400');
+psql:sql/14.5/float8.sql:316: ERROR:  "-10e400" is out of range for type double precision
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (15, '-10e400');
+                                                   ^
+--Testcase 104:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (15, '-10e400');
+psql:sql/14.5/float8.sql:318: ERROR:  "-10e400" is out of range for type double precision
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (15, '-10e400');
+                                                   ^
+--Testcase 105:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (16, '10e-400');
+psql:sql/14.5/float8.sql:321: ERROR:  "10e-400" is out of range for type double precision
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (16, '10e-400');
+                                                   ^
+--Testcase 106:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (16, '10e-400');
+psql:sql/14.5/float8.sql:323: ERROR:  "10e-400" is out of range for type double precision
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (16, '10e-400');
+                                                   ^
+--Testcase 107:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (17, '-10e-400');
+psql:sql/14.5/float8.sql:326: ERROR:  "-10e-400" is out of range for type double precision
+LINE 2: INSERT INTO FLOAT8_TBL(id, f1) VALUES (17, '-10e-400');
+                                                   ^
+--Testcase 108:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (17, '-10e-400');
+psql:sql/14.5/float8.sql:328: ERROR:  "-10e-400" is out of range for type double precision
+LINE 1: INSERT INTO FLOAT8_TBL(id, f1) VALUES (17, '-10e-400');
+                                                   ^
+-- maintain external table consistency across platforms
+-- delete all values and reinsert well-behaved ones
+--Testcase 109:
+EXPLAIN VERBOSE
+DELETE FROM FLOAT8_TBL;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Delete on public.float8_tbl  (cost=100.00..197.75 rows=0 width=0)
+   Remote SQL: DELETE FROM float8_tbl WHERE id=?
+   ->  Foreign Scan on public.float8_tbl  (cost=100.00..197.75 rows=2925 width=4)
+         Output: id
+         Remote SQL: SELECT id FROM float8_tbl
+(5 rows)
+
+--Testcase 110:
+DELETE FROM FLOAT8_TBL;
+--Testcase 111:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (1, '0.0');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 1, '0'::double precision
+(4 rows)
+
+--Testcase 112:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (1, '0.0');
+--Testcase 113:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (2, '-34.84');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 2, '-34.84'::double precision
+(4 rows)
+
+--Testcase 114:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (2, '-34.84');
+--Testcase 115:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (3, '-1004.30');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 3, '-1004.3'::double precision
+(4 rows)
+
+--Testcase 116:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (3, '-1004.30');
+--Testcase 117:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (4, '-1.2345678901234e+200');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 4, '-1.2345678901234e+200'::double precision
+(4 rows)
+
+--Testcase 118:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (4, '-1.2345678901234e+200');
+--Testcase 119:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (5, '-1.2345678901234e-200');
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO float8_tbl(id, f1) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: 5, '-1.2345678901234e-200'::double precision
+(4 rows)
+
+--Testcase 120:
+INSERT INTO FLOAT8_TBL(id, f1) VALUES (5, '-1.2345678901234e-200');
+--Testcase 121:
+EXPLAIN VERBOSE
+SELECT f1 FROM FLOAT8_TBL;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl  (cost=100.00..186.80 rows=2560 width=8)
+   Output: f1
+   Remote SQL: SELECT f1 FROM float8_tbl
+(3 rows)
+
+--Testcase 122:
+SELECT f1 FROM FLOAT8_TBL;
+          f1           
+-----------------------
+                     0
+                -34.84
+               -1004.3
+ -1.2345678901234e+200
+ -1.2345678901234e-200
+(5 rows)
+
+--Testcase 123:
+DROP SERVER :DB_SERVERNAME CASCADE;
+psql:sql/14.5/float8.sql:367: NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to user mapping for public on server mysql_server
+drop cascades to foreign table float8_tbl
+--Testcase 124:
+DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

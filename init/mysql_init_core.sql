@@ -46,6 +46,7 @@ DROP TABLE IF EXISTS agg_fns_2;
 DROP TABLE IF EXISTS delete_test;
 DROP TABLE IF EXISTS inserttest;
 DROP TABLE IF EXISTS tenk;
+DROP TABLE IF EXISTS btg;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -202,6 +203,7 @@ CREATE TABLE tenk (
 	string4		varchar(64)
 );
 
+CREATE TABLE btg(id int primary key, p int, v text, c float, d float, e int);
 CREATE TABLE char_tbl (id int primary key, f1 char);
 CREATE TABLE char_tbl_2 (id int primary key, f1 char(4));
 CREATE TABLE date_tbl (id int primary key, f1 date);

@@ -9,18 +9,18 @@ cd $PGS_BIN_DIR/bin
 if [[ "--start" == $1 ]]
 then
     #Start Postgres
-    if ! [ -d "../test_odbc_database" ];
+    if ! [ -d "../test_jdbc_database" ];
     then
-        ./initdb ../test_odbc_database
-        sed -i "s~#port = 5432.*~port = $PDB_PORT~g" ../test_odbc_database/postgresql.conf
-        ./pg_ctl -D ../test_odbc_database -l /dev/null start
+        ./initdb ../test_jdbc_database
+        sed -i "s~#port = 5432.*~port = $PDB_PORT~g" ../test_jdbc_database/postgresql.conf
+        ./pg_ctl -D ../test_jdbc_database -l /dev/null start
         sleep 2
         ./createdb -p $PDB_PORT $PDB_NAME
     fi
     if ! ./pg_isready -p $PDB_PORT
     then
         echo "Start PostgreSQL"
-        ./pg_ctl -D ../test_odbc_database -l /dev/null start
+        ./pg_ctl -D ../test_jdbc_database -l /dev/null start
         sleep 2
     fi
 fi

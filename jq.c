@@ -41,10 +41,10 @@
  * Local housekeeping functions and Java objects
  */
 
-static JNIEnv * Jenv;
+static __thread JNIEnv * Jenv = NULL;
 static JavaVM * jvm;
 jobject		java_call;
-static bool InterruptFlag;		/* Used for checking for SIGINT interrupt */
+static volatile bool InterruptFlag;		/* Used for checking for SIGINT interrupt */
 
 /*
  * Describes the valid options for objects that use this wrapper.
@@ -74,7 +74,7 @@ static JserverOptions opts;
 
 /* Local function prototypes */
 static int	jdbc_connect_db_complete(Jconn * conn);
-static void jdbc_jvm_init(const ForeignServer * server, const UserMapping * user);
+void jdbc_jvm_init(const ForeignServer * server, const UserMapping * user);
 static void jdbc_get_server_options(JserverOptions * opts, const ForeignServer * f_server, const UserMapping * f_mapping);
 static Jconn * jdbc_create_JDBC_connection(const ForeignServer * server, const UserMapping * user);
 /*

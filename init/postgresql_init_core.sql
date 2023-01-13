@@ -44,8 +44,10 @@ DROP TABLE IF EXISTS bytea_test_table;
 DROP TABLE IF EXISTS agg_fns_1;
 DROP TABLE IF EXISTS agg_fns_2;
 DROP TABLE IF EXISTS delete_test;
+DROP TABLE IF EXISTS nocols;
 DROP TABLE IF EXISTS inserttest;
 DROP TABLE IF EXISTS tenk;
+DROP TABLE IF EXISTS btg;
 
 CREATE TABLE onek (
 	unique1		int4,
@@ -110,6 +112,7 @@ CREATE TABLE tenk1 (
 	string4		varchar(64)
 );
 
+CREATE TABLE btg(id int PRIMARY KEY, p int4, v text, c float8, d float8, e int4);
 CREATE TABLE multi_arg_agg (a int4 PRIMARY KEY, b int, c text);
 CREATE TABLE int4_tbl(id int4 PRIMARY KEY, f1 int4);
 CREATE TABLE int4_tmp(id SERIAL PRIMARY KEY , a int4, b int4);
@@ -212,7 +215,7 @@ CREATE TABLE string_agg2(id int, a text);
 CREATE TABLE string_agg3(id int, a text);
 CREATE TABLE string_agg4(id int, a text);
 
-
+CREATE TABLE nocols();
 create table bytea_test_table(id int, v bytea);
 CREATE TABLE agg_fns_1 (id int, a int);
 

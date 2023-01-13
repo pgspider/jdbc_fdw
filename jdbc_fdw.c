@@ -51,9 +51,9 @@
 #define Str(arg) #arg
 #define StrValue(arg) Str(arg)
 #define STR_PKGLIBDIR StrValue(PKG_LIB_DIR)
-#define IS_KEY_COLUMN(A)  ((strcmp(A->defname, "key") == 0) && \
-               (strcmp(((Value *)(A->arg))->val.str, "true") == 0))
 
+#define IS_KEY_COLUMN(A)	((strcmp(A->defname, "key") == 0) && \
+							 (strcmp(strVal(A->arg), "true") == 0))
 
 PG_MODULE_MAGIC;
 
@@ -94,9 +94,9 @@ enum FdwScanPrivateIndex
  */
 enum FdwPathPrivateIndex
 {
-	/* has-final-sort flag (as an integer Value node) */
+	/* has-final-sort flag (as a Boolean node) */
 	FdwPathPrivateHasFinalSort,
-	/* has-limit flag (as an integer Value node) */
+	/* has-limit flag (as a Boolean node) */
 	FdwPathPrivateHasLimit
 };
 
@@ -116,7 +116,7 @@ enum FdwModifyPrivateIndex
 	FdwModifyPrivateUpdateSql,
 	/* Integer list of target attribute numbers for INSERT/UPDATE */
 	FdwModifyPrivateTargetAttnums,
-	/* has-returning flag (as an integer Value node) */
+	/* has-returning flag (as a Boolean node) */
 	FdwModifyPrivateHasReturning,
 	/* Integer list of attribute numbers retrieved by RETURNING */
 	FdwModifyPrivateRetrievedAttrs
@@ -643,7 +643,11 @@ jdbcGetForeignPlan(PlannerInfo *root,
 	 */
 	if (best_path->fdw_private)
 	{
+#if PG_VERSION_NUM >= 150000
+		has_limit = boolVal(list_nth(best_path->fdw_private, FdwPathPrivateHasLimit));
+#else
 		has_limit = intVal(list_nth(best_path->fdw_private, FdwPathPrivateHasLimit));
+#endif
 	}
 
 	/*
@@ -2385,11 +2389,15 @@ jdbc_add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	 * Build the fdw_private list that will be used by postgresGetForeignPlan.
 	 * Items in the list must match order in enum FdwPathPrivateIndex.
 	 */
-	fdw_private = list_make2(makeInteger(has_final_sort)
-#if (PG_VERSION_NUM >= 120000)
-							 ,makeInteger(extra->limit_needed));
+#if PG_VERSION_NUM >= 150000
+	fdw_private = list_make2(makeBoolean(has_final_sort),
+							 makeBoolean(extra->limit_needed));
+#elif (PG_VERSION_NUM >= 120000)
+    fdw_private = list_make2(makeInteger(has_final_sort),
+							 makeInteger(extra->limit_needed));
 #else
-							 ,makeInteger(false));
+    fdw_private = list_make2(makeInteger(has_final_sort),
+                             makeInteger(false));
 #endif
 
 	/*
@@ -2730,6 +2738,13 @@ jdbc_set_transmission_modes(void)
 		(void) set_config_option("extra_float_digits", "3",
 								 PGC_USERSET, PGC_S_SESSION,
 								 GUC_ACTION_SAVE, true, 0, false);
+	/*
+	 * In addition force restrictive search_path, in case there are any
+	 * regproc or similar constants to be printed.
+	 */
+	(void) set_config_option("search_path", "pg_catalog",
+							 PGC_USERSET, PGC_S_SESSION,
+							 GUC_ACTION_SAVE, true, 0, false);
 
 	return nestlevel;
 }
