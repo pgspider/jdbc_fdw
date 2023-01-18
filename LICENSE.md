@@ -2,7 +2,7 @@ JDBC Foreign Data Wrapper for PostgreSQL
 
 **jdbc_fdw** is released under the PostgreSQL License, a liberal Open Source license, similar to the BSD or MIT licenses.
 
-Portions Copyright (c) 2021, TOSHIBA CORPORATION
+Copyright (c) 2021, TOSHIBA CORPORATION
 
 Permission to use, copy, modify, and distribute this software and its documentation for any purpose, without fee, and without a written agreement is hereby granted, provided that the above copyright notice and this paragraph and the following two paragraphs appear in all copies.
 

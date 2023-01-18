@@ -306,7 +306,8 @@ griddb_init(const char *addr,
 	GSResult	ret = GS_RESULT_OK;
 
 	/* For griddb_fdw */
-	table_info	department,
+	table_info	btg,
+				department,
 				employee,
 				empdata,
 				numbers,
@@ -626,6 +627,20 @@ griddb_init(const char *addr,
 		printf("Get GridDB instance failed\n");
 		goto EXIT;
 	}
+
+	/*
+	 * CREATE TABLE btg(id int primary key, p int, v text, c float, d float, e int);
+	 */
+	ret = set_tableInfo(store, "btg", &btg,
+						6,
+						"id", GS_TYPE_INTEGER, GS_TYPE_OPTION_NOT_NULL,
+						"p", GS_TYPE_INTEGER, GS_TYPE_OPTION_NULLABLE,
+						"v", GS_TYPE_STRING, GS_TYPE_OPTION_NULLABLE,
+						"c", GS_TYPE_FLOAT, GS_TYPE_OPTION_NULLABLE,
+						"d", GS_TYPE_FLOAT, GS_TYPE_OPTION_NULLABLE,
+						"e", GS_TYPE_INTEGER, GS_TYPE_OPTION_NULLABLE);
+	if (!GS_SUCCEEDED(ret))
+		goto EXIT;
 
 	/*
 	 * CREATE TABLE department (department_id integer primary key,

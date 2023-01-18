@@ -997,7 +997,7 @@ jdbc_deparse_select_stmt_for_rel(StringInfo buf,
 static bool
 jdbc_is_builtin(Oid oid)
 {
-	return (oid < FirstBootstrapObjectId);
+	return (oid < FirstGenbkiObjectId);
 }
 
 

@@ -77,4 +77,5 @@ extern TupleTableSlot * jq_iterate(Jconn * conn, ForeignScanState * node, List *
 extern void *jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, int resultSetID);
 extern Datum jdbc_convert_to_pg(Oid pgtyp, int pgtypmod, char *value);
 extern List * jq_get_schema_info(Jconn * conn);
+extern void jdbc_jvm_init(const ForeignServer * server, const UserMapping * user);
 #endif							/* JQ_H */

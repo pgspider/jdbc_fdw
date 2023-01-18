@@ -64,21 +64,23 @@ typedef struct ConnCacheEntry
 static HTAB *ConnectionHash = NULL;
 
 /* for assigning cursor numbers and prepared statement numbers */
-static unsigned int cursor_number = 0;
+static volatile unsigned int cursor_number = 0;
 static unsigned int prep_stmt_number = 0;
 
 /* tracks whether any work is needed in callback functions */
-static bool xact_got_connection = false;
+static volatile bool xact_got_connection = false;
 
 /* prototypes of private functions */
 static Jconn * connect_jdbc_server(ForeignServer *server, UserMapping *user);
 static void jdbc_check_conn_params(const char **keywords, const char **values);
 static void jdbc_do_sql_command(Jconn * conn, const char *sql);
 static void jdbcfdw_xact_callback(XactEvent event, void *arg);
+static void jdbcfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
 static void jdbcfdw_subxact_callback(SubXactEvent event,
 									 SubTransactionId mySubid,
 									 SubTransactionId parentSubid,
 									 void *arg);
+static void jdbcfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel);
 
 
 /*
@@ -167,6 +169,10 @@ jdbc_get_connection(ForeignServer *server, UserMapping *user,
 		entry->have_prep_stmt = false;
 		entry->have_error = false;
 		entry->conn = connect_jdbc_server(server, user);
+	}
+	else
+	{
+		jdbc_jvm_init(server, user);
 	}
 
 	/* Remember if caller will prepare statements */
@@ -513,39 +519,10 @@ jdbcfdw_xact_callback(XactEvent event, void *arg)
 					elog(ERROR, "missed cleaning up connection during pre-commit");
 					break;
 				case XACT_EVENT_ABORT:
-
-					/*
-					 * Assume we might have lost track of prepared statements
-					 */
-					entry->have_error = true;
-
-					/*
-					 * If we're aborting, abort all remote transactions too
-					 */
-					res = jq_exec(entry->conn, "ABORT TRANSACTION");
-
-					/*
-					 * Note: can't throw ERROR, it would be infinite loop
-					 */
-					if (*res != PGRES_COMMAND_OK)
-						jdbc_fdw_report_error(WARNING, res, entry->conn, true,
-											  "ABORT TRANSACTION");
-					else
-					{
-						jq_clear(res);
-
-						/*
-						 * As above, make sure to clear any prepared stmts
-						 */
-						if (entry->have_prep_stmt && entry->have_error)
-						{
-							res = jq_exec(entry->conn, "DEALLOCATE ALL");
-							jq_clear(res);
-						}
-						entry->have_prep_stmt = false;
-						entry->have_error = false;
-					}
+				{
+					jdbcfdw_abort_cleanup(entry, true);
 					break;
+				}
 				case XACT_EVENT_PARALLEL_COMMIT:
 					break;
 				case XACT_EVENT_PARALLEL_ABORT:
@@ -556,19 +533,7 @@ jdbcfdw_xact_callback(XactEvent event, void *arg)
 		}
 
 		/* Reset state to show we're out of a transaction */
-		entry->xact_depth = 0;
-
-		/*
-		 * If the connection isn't in a good idle state, discard it to
-		 * recover. Next GetConnection will open a new connection.
-		 */
-		if (jq_status(entry->conn) != CONNECTION_OK ||
-			jq_transaction_status(entry->conn) != PQTRANS_IDLE)
-		{
-			elog(DEBUG3, "discarding connection %p", entry->conn);
-			jq_finish(entry->conn);
-			entry->conn = NULL;
-		}
+		jdbcfdw_reset_xact_state(entry, true);
 	}
 
 	/*
@@ -580,6 +545,75 @@ jdbcfdw_xact_callback(XactEvent event, void *arg)
 
 	/* Also reset cursor numbering for next transaction */
 	cursor_number = 0;
+}
+
+/*
+ * Abort remote transaction or subtransaction.
+ *
+ * "toplevel" should be set to true if toplevel (main) transaction is
+ * rollbacked, false otherwise.
+ *
+ * Set entry->changing_xact_state to false on success, true on failure.
+ */
+static void
+jdbcfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel)
+{
+	Jresult    *res;
+
+	if (toplevel)
+	{
+		/*
+		 * Assume we might have lost track of prepared statements
+		 */
+		entry->have_error = true;
+
+		/*
+		 * If we're aborting, abort all remote transactions too
+		 */
+		res = jq_exec(entry->conn, "ABORT TRANSACTION");
+
+		/*
+		 * Note: can't throw ERROR, it would be infinite loop
+		 */
+		if (*res != PGRES_COMMAND_OK)
+			jdbc_fdw_report_error(WARNING, res, entry->conn, true,
+									"ABORT TRANSACTION");
+		else
+		{
+			jq_clear(res);
+
+			/*
+			 * As above, make sure to clear any prepared stmts
+			 */
+			if (entry->have_prep_stmt && entry->have_error)
+			{
+				res = jq_exec(entry->conn, "DEALLOCATE ALL");
+				jq_clear(res);
+			}
+			entry->have_prep_stmt = false;
+			entry->have_error = false;
+		}
+	}
+	else
+	{
+		char sql[100];
+		int curlevel = GetCurrentTransactionNestLevel();
+
+		/*
+		 * Assume we might have lost track of prepared statements
+		 */
+		entry->have_error = true;
+
+		/* Rollback all remote subtransactions during abort */
+		snprintf(sql, sizeof(sql),
+				 "ROLLBACK TO SAVEPOINT s%d; RELEASE SAVEPOINT s%d",
+				 curlevel, curlevel);
+		res = jq_exec(entry->conn, sql);
+		if (*res != PGRES_COMMAND_OK)
+			jdbc_fdw_report_error(WARNING, res, entry->conn, true, sql);
+		else
+			jq_clear(res);
+	}
 }
 
 /*
@@ -610,7 +644,6 @@ jdbcfdw_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 	hash_seq_init(&scan, ConnectionHash);
 	while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
 	{
-		Jresult    *res;
 		char		sql[100];
 
 		/*
@@ -634,22 +667,38 @@ jdbcfdw_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 		}
 		else
 		{
-			/*
-			 * Assume we might have lost track of prepared statements
-			 */
-			entry->have_error = true;
-			/* Rollback all remote subtransactions during abort */
-			snprintf(sql, sizeof(sql),
-					 "ROLLBACK TO SAVEPOINT s%d; RELEASE SAVEPOINT s%d",
-					 curlevel, curlevel);
-			res = jq_exec(entry->conn, sql);
-			if (*res != PGRES_COMMAND_OK)
-				jdbc_fdw_report_error(WARNING, res, entry->conn, true, sql);
-			else
-				jq_clear(res);
+			jdbcfdw_abort_cleanup(entry, false);
 		}
 
 		/* OK, we're outta that level of subtransaction */
+		jdbcfdw_reset_xact_state(entry, false);
+	}
+}
+
+/*
+ * jdbcfdw_reset_xact_state --- Reset state to show we're out of a (sub)transaction
+ */
+static void
+jdbcfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel)
+{
+	if (toplevel)
+	{
+		entry->xact_depth = 0;
+
+		/*
+		 * If the connection isn't in a good idle state, discard it to
+		 * recover. Next GetConnection will open a new connection.
+		 */
+		if (jq_status(entry->conn) != CONNECTION_OK ||
+			jq_transaction_status(entry->conn) != PQTRANS_IDLE)
+		{
+			elog(DEBUG3, "discarding connection %p", entry->conn);
+			jq_finish(entry->conn);
+			entry->conn = NULL;
+		}
+	}
+	else
+	{
 		entry->xact_depth--;
 	}
 }
