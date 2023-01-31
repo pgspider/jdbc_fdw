@@ -26,13 +26,13 @@ Contents
 
 Features
 --------
-## Common features
+### Common features
 
 #### Write-able FDW
 The existing JDBC FDWs are only read-only, this version provides the write capability.
 The user can now issue an insert, update, and delete statement for the foreign tables using the jdbc_fdw.
 
-## Pushdowning
+### Pushdowning
 
 #### WHERE clause push-down
 The jdbc_fdw will push-down the foreign table where clause to the foreign server.
@@ -49,7 +49,7 @@ List of aggregate functions push-down:
 ```
 sum, avg, stddev, stddev_pop, stddev_samp, var_pop, var_samp, variance, max, min, count.
 ```
-## Notes about features
+### Notes about features
 
 #### Maximum digits storing float value of MySQL
 Maximum digits storing float value of MySQL is 6 digits. The stored value may not be the same as the value inserted.
