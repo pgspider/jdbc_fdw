@@ -314,10 +314,13 @@ Opening issues and pull requests on GitHub are welcome.
 Useful links
 ------------
 
-### Source
+### Source code
 
  - [JDBC\_FDW](http://github.com/atris/JDBC_FDW.git)
  - [jdbc2\_fdw](https://github.com/heimir-sverrisson/jdbc2_fdw)
+ 
+ Reference FDW realisation, `postgres_fdw`
+ - https://git.postgresql.org/gitweb/?p=postgresql.git;a=tree;f=contrib/postgres_fdw;hb=HEAD
 
 ### General FDW Documentation
 
