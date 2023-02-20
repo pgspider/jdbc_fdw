@@ -8,6 +8,7 @@
  *
  * ---------------------------------------------
  */
+#include <stdlib.h>
 #include "postgres.h"
 #include "jdbc_fdw.h"
 #include "catalog/pg_foreign_server.h"
@@ -36,6 +37,12 @@
 #define POSTGRES_TO_UNIX_EPOCH_DAYS 		(POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE)
 /* POSTGRES_TO_UNIX_EPOCH_DAYS to microseconds */
 #define POSTGRES_TO_UNIX_EPOCH_USECS 		(POSTGRES_TO_UNIX_EPOCH_DAYS * USECS_PER_DAY)
+
+#ifdef _WIN32
+#define PATH_SEPARATOR ";"
+#else
+#define PATH_SEPARATOR ":"
+#endif
 
 /*
  * Local housekeeping functions and Java objects
@@ -308,8 +315,18 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
 
 	if (FunctionCallCheck == false)
 	{
-		classpath = (char *) palloc0(strlen(strpkglibdir) + 19);
-		snprintf(classpath, strlen(strpkglibdir) + 19, "-Djava.class.path=%s", strpkglibdir);
+		const char* env_classpath = getenv("CLASSPATH");
+		int classpath_length = strlen(strpkglibdir) + 19;
+
+		if (env_classpath != NULL) {
+			classpath_length += 1 + strlen(env_classpath);
+			classpath = (char *) palloc0(classpath_length);
+			snprintf(classpath, classpath_length, "-Djava.class.path=%s" PATH_SEPARATOR "%s", strpkglibdir, env_classpath);
+		} else {
+			classpath = (char *) palloc0(classpath_length);
+			snprintf(classpath, classpath_length, "-Djava.class.path=%s", strpkglibdir);
+		}
+
 
 		if (opts.maxheapsize != 0)
 		{						/* If the user has given a value for setting
@@ -339,7 +356,7 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
 					(errmsg("Failed to create Java VM")
 					 ));
 		}
-		ereport(DEBUG3, (errmsg("Successfully created a JVM with %d MB heapsize", opts.maxheapsize)));
+		ereport(DEBUG3, (errmsg("Successfully created a JVM with %d MB heapsize and classpath set to '%s'", opts.maxheapsize, classpath)));
 		InterruptFlag = false;
 		/* Register an on_proc_exit handler that shuts down the JVM. */
 		on_proc_exit(jdbc_destroy_jvm, 0);
