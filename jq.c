@@ -1276,6 +1276,52 @@ jq_exception_clear()
 }
 
 /*
+ * Helper Method from JNIHelp.c from android source code
+ */
+static jmethodID FindMethod(JNIEnv* env,
+                            const char* className,
+                            const char* methodName,
+                            const char* descriptor) {
+    // This method is only valid for classes in the core library which are
+    // not unloaded during the lifetime of managed code execution.
+    jclass clazz = (*env)->FindClass(env, className);
+    jmethodID methodId = (*env)->GetMethodID(env, clazz, methodName, descriptor);
+    (*env)->DeleteLocalRef(env, clazz);
+    return methodId;
+}
+
+/*
+ * Helper Method from JNIHelp.c from android source code
+ */
+static jobject NewStringWriter(JNIEnv* env) {
+    jclass clazz = (*env)->FindClass(env, "java/io/StringWriter");
+    jmethodID init = (*env)->GetMethodID(env, clazz, "<init>", "()V");
+    jobject instance = (*env)->NewObject(env, clazz, init);
+    (*env)->DeleteLocalRef(env, clazz);
+    return instance;
+}
+
+/*
+ * Helper Method from JNIHelp.c from android source code
+ */
+static jstring StringWriterToString(JNIEnv* env, jobject stringWriter) {
+    jmethodID toString =
+        FindMethod(env, "java/io/StringWriter", "toString", "()Ljava/lang/String;");
+    return (jstring) (*env)->CallObjectMethod(env, stringWriter, toString);
+}
+
+/*
+ * Helper Method from JNIHelp.c from android source code
+ */
+static jobject NewPrintWriter(JNIEnv* env, jobject writer) {
+    jclass clazz = (*env)->FindClass(env, "java/io/PrintWriter");
+    jmethodID init = (*env)->GetMethodID(env, clazz, "<init>", "(Ljava/io/Writer;)V");
+    jobject instance = (*env)->NewObject(env, clazz, init, writer);
+    (*env)->DeleteLocalRef(env, clazz);
+    return instance;
+}
+
+/*
  * jq_get_exception: get the JNI exception is currently being thrown convert
  * to String for ouputing error message
  */
@@ -1290,7 +1336,9 @@ jq_get_exception()
 		jclass		objectClass;
 		jstring		exceptionMsg;
 		char	   *exceptionString;
+		char	   *exceptionStackTraceString;
 		char	   *err_msg = NULL;
+		char	   *stackTrace_msg = NULL;
 
 		/* determines if an exception is being thrown */
 		exc = (*Jenv)->ExceptionOccurred(Jenv);
@@ -1300,12 +1348,43 @@ jq_get_exception()
 		{
 			ereport(ERROR, (errmsg("java/lang/Object class could not be created")));
 		}
+		// Stack Trace
+		{
+			jobject sw = NewStringWriter(Jenv);
+			if (sw == NULL) {
+				ereport(ERROR, (errmsg("String Writer is null")));
+			}
+
+			jobject pw = NewPrintWriter(Jenv, sw);
+			if (pw == NULL) {
+				(*Jenv)->DeleteLocalRef(Jenv, sw);
+				ereport(ERROR, (errmsg("Trace is null")));
+			}
+
+			jmethodID printStackTrace =
+				FindMethod(Jenv, "java/lang/Throwable", "printStackTrace", "(Ljava/io/PrintWriter;)V");
+			(*Jenv)->CallVoidMethod(Jenv, exc, printStackTrace, pw);
+
+			jstring trace = StringWriterToString(Jenv, sw);
+			(*Jenv)->DeleteLocalRef(Jenv, pw);
+			pw = NULL;
+			(*Jenv)->DeleteLocalRef(Jenv, sw);
+			sw = NULL;
+
+			if (trace == NULL) {
+				ereport(ERROR, (errmsg("Trace is null!!!")));
+			}
+
+		    exceptionStackTraceString = jdbc_convert_string_to_cstring((jobject) trace);
+			stackTrace_msg = pstrdup(exceptionStackTraceString);
+			ereport(DEBUG3, (errmsg("%s", stackTrace_msg)));
+		}
 		exceptionMsgID = (*Jenv)->GetMethodID(Jenv, objectClass, "toString", "()Ljava/lang/String;");
 		exceptionMsg = (jstring) (*Jenv)->CallObjectMethod(Jenv, exc, exceptionMsgID);
 		exceptionString = jdbc_convert_string_to_cstring((jobject) exceptionMsg);
 		err_msg = pstrdup(exceptionString);
-		ereport(ERROR, (errmsg("remote server returned an error")));
 		ereport(DEBUG3, (errmsg("%s", err_msg)));
+		ereport(ERROR, (errmsg("remote server returned an error")));
 	}
 	return;
 }
