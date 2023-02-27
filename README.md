@@ -123,6 +123,8 @@ List of aggregate functions push-down:
 ```
 sum, avg, stddev, stddev_pop, stddev_samp, var_pop, var_samp, variance, max, min, count.
 ```
+#### Arbitrary SQL query execution via function
+Support execute the whole sql query and get results from the DB behind jdbc connection. This function returns a set of records.
 
 Usage
 -----
@@ -134,6 +136,29 @@ The primary key options can be set while creating a JDBC foreign table object wi
 ```
 CREATE FOREIGN TABLE [table name]([column name] [column type] OPTIONS(key 'true')) SERVER [server name];
 ```
+#### Arbitrary SQL query execution via function
+Syntax:
+```
+jdbc_exec(text connname, text sql);
+```
+
+Example:  
+To get a set of record, use the below sql query:
+```
+SELECT jdbc_exec(jdbc_svr, 'SELECT * FROM tbl');
+              jdbc_exec                 
+----------------------------------------
+ (1,abc,"Fri Dec 31 16:00:00 1999 PST")
+ (2,def,"Fri Dec 31 16:00:00 1999 PST")
+ ```
+To get a set of record with separate data for each column, use the below sql query:
+```
+SELECT * FROM jdbc_exec(jdbc_svr, 'SELECT * FROM tbl') as t(id int, c1 text, c2 timestamptz);
+ id |  c1 |              c2              
+----+-----+------------------------------
+  1 | abc | Fri Dec 31 16:00:00 1999 PST
+  2 | def | Fri Dec 31 16:00:00 1999 PST
+ ```
 
 #### IMPORT FOREIGN SCHEMA
 The following parameter is optional for import schema:  

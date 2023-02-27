@@ -610,6 +610,7 @@ griddb_init(const char *addr,
 				tbl03,
 				tbl04,
 				tbl05,
+				tbl06,
 				test_explicit_cast;
 	const		GSPropertyEntry props[] = {
 		{"notificationAddress", addr},
@@ -2868,6 +2869,17 @@ griddb_init(const char *addr,
 	if (!GS_SUCCEEDED(ret))
 		goto EXIT;
 
+	ret = set_tableInfo(store, "tbl06", &tbl06,
+						6,
+						"id", GS_TYPE_INTEGER, GS_TYPE_OPTION_NOT_NULL,
+						"c1", GS_TYPE_DOUBLE, GS_TYPE_OPTION_NULLABLE,
+						"c2", GS_TYPE_LONG, GS_TYPE_OPTION_NULLABLE,
+						"c3", GS_TYPE_STRING, GS_TYPE_OPTION_NULLABLE,
+						"c4", GS_TYPE_BOOL, GS_TYPE_OPTION_NULLABLE,
+						"c5", GS_TYPE_TIMESTAMP, GS_TYPE_OPTION_NULLABLE);
+	if (!GS_SUCCEEDED(ret))
+		goto EXIT;
+
 	ret = set_tableInfo(store, "test_explicit_cast", &test_explicit_cast,
 						2,
 						"id", GS_TYPE_INTEGER, GS_TYPE_OPTION_NOT_NULL,
@@ -2941,6 +2953,10 @@ griddb_init(const char *addr,
 		goto EXIT;
 
 	ret = insert_recordsFromTSV(store, &tbl04, "/tmp/jdbc/tbl04.data");
+	if (!GS_SUCCEEDED(ret))
+		goto EXIT;
+
+	ret = insert_recordsFromTSV(store, &tbl06, "/tmp/jdbc/tbl06.data");
 	if (!GS_SUCCEEDED(ret))
 		goto EXIT;
 EXIT:

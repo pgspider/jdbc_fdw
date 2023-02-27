@@ -300,6 +300,143 @@ public class JDBCUtils {
   }
 
   /*
+   * getColumnTypesByResultSetID
+   *      Returns the column types
+   */
+  public String[] getColumnTypesByResultSetID(int resultSetID) throws SQLException {
+    int i = 0;
+    try {
+      ResultSet tmpResultSet = resultSetInfoMap.get(resultSetID).getResultSet();
+      ResultSetMetaData resultSetMetaData = tmpResultSet.getMetaData();
+      int columnNumber = resultSetMetaData.getColumnCount();
+      String[] tmpColumnTypesList = new String[columnNumber];
+
+      for (i = 0; i < columnNumber; i++)
+      {
+        /* Column's index start from 1, so param of getColumnTypeName is (i + 1)  */
+        int columnType = resultSetMetaData.getColumnType(i + 1);
+        switch (columnType) {
+          case Types.ARRAY:
+            /* Array get from postgres server e.g interger[], bool[],... */
+            tmpColumnTypesList[i] = tmpResultSet.getString("TYPE_NAME");
+            break;
+          case Types.BIGINT:
+            tmpColumnTypesList[i] = "BIGINT";
+            break;
+          case Types.BINARY:
+          case Types.BLOB:
+          case Types.LONGVARBINARY:
+          case Types.VARBINARY:
+            tmpColumnTypesList[i] = "BYTEA";
+            break;
+          case Types.BIT:
+          case Types.BOOLEAN:
+            tmpColumnTypesList[i] = "BOOL";
+            break;
+          case Types.CHAR:
+          case Types.LONGVARCHAR:
+          case Types.VARCHAR:
+            tmpColumnTypesList[i] = "TEXT";
+            break;
+          case Types.DATE:
+            tmpColumnTypesList[i] = "DATE";
+            break;
+          case Types.DECIMAL:
+          case Types.NUMERIC:
+            tmpColumnTypesList[i] = "NUMERIC";
+            break;
+          case Types.DOUBLE:
+            tmpColumnTypesList[i] = "FLOAT8";
+            break;
+          case Types.FLOAT:
+          case Types.REAL:
+            tmpColumnTypesList[i] = "FLOAT4";
+            break;
+          case Types.INTEGER:
+            tmpColumnTypesList[i] = "INT4";
+            break;
+          case Types.SMALLINT:
+          case Types.TINYINT:
+            tmpColumnTypesList[i] = "INT2";
+            break;
+          case Types.TIME:
+            tmpColumnTypesList[i] = "TIME";
+            break;
+          case Types.TIMESTAMP:
+            /* timestamp need to mapping to timestamptz by default */
+            tmpColumnTypesList[i] = "TIMESTAMPTZ";
+            break;
+          case Types.OTHER:
+          {
+            /* get type name from remote server */
+            switch (tmpResultSet.getString("TYPE_NAME")) {
+              /*mapping type for gridDB*/
+              case "BOOL_ARRAY":
+                tmpColumnTypesList[i] = "BOOL[]";
+                break;
+              case "STRING_ARRAY":
+                tmpColumnTypesList[i] = "TEXT[]";
+                break;
+              case "BYTE_ARRAY":
+              case "SHORT_ARRAY":
+                tmpColumnTypesList[i] = "INT2[]";
+                break;
+              case "INTEGER_ARRAY":
+                tmpColumnTypesList[i] = "INTEGER[]";
+                break;
+              case "LONG_ARRAY":
+                tmpColumnTypesList[i] = "BIGINT[]";
+                break;
+              case "FLOAT_ARRAY":
+                tmpColumnTypesList[i] = "FLOAT4[]";
+                break;
+              case "DOUBLE_ARRAY":
+                tmpColumnTypesList[i] = "FLOAT8[]";
+                break;
+              case "TIMESTAMP_ARRAY":
+                /* Timestamp array from GridDB */
+                tmpColumnTypesList[i] = "TIMESTAMPTZ[]";
+                break;
+              default:
+                tmpColumnTypesList[i] = tmpResultSet.getString("TYPE_NAME");
+                break;
+            }
+            break;
+          }
+          default:
+            tmpColumnTypesList[i] = tmpResultSet.getString("TYPE_NAME");
+            break;
+        }
+      }
+      return tmpColumnTypesList;
+    } catch (Throwable e) {
+      throw e;
+    }
+  }
+
+  /*
+   * getColumnNamesByResultSetID
+   *      Returns the column name based on ResultSet
+   */
+  public String[] getColumnNamesByResultSetID(int resultSetID) throws SQLException {
+    try {
+      ResultSet tmpResultSet = resultSetInfoMap.get(resultSetID).getResultSet();
+      ResultSetMetaData resultSetMetaData = tmpResultSet.getMetaData();
+      int columnNumber = resultSetMetaData.getColumnCount();
+      String[] tmpColumnNames = new String[columnNumber];
+
+      for (int i = 0; i < columnNumber; i++)
+      {
+        /* Column's index start from 1, so param of getColumnName is (i + 1)  */
+        tmpColumnNames[i] = resultSetMetaData.getColumnName(i + 1);
+      }
+      return tmpColumnNames;
+    } catch (Throwable e) {
+      throw e;
+    }
+  }
+
+  /*
    * getTableNames
    *      Returns the column name
    */
