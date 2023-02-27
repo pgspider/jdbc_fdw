@@ -34,7 +34,7 @@
 #include "libpq-fe.h"
 #include "jq.h"
 
-#define CODE_VERSION	300
+#define CODE_VERSION	301
 typedef struct jdbcAggref
 {
 	StringInfo	aggname;

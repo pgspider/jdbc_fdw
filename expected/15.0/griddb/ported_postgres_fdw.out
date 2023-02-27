@@ -10137,6 +10137,7 @@ IMPORT FOREIGN SCHEMA import_source FROM SERVER :DB_SERVERNAME INTO import_dest1
  import_dest1 | tbl03                     | griddb_server |             | 
  import_dest1 | tbl04                     | griddb_server |             | 
  import_dest1 | tbl05                     | griddb_server |             | 
+ import_dest1 | tbl06                     | griddb_server |             | 
  import_dest1 | tenk                      | griddb_server |             | 
  import_dest1 | tenk1                     | griddb_server |             | 
  import_dest1 | tenk2                     | griddb_server |             | 
@@ -10186,7 +10187,7 @@ IMPORT FOREIGN SCHEMA import_source FROM SERVER :DB_SERVERNAME INTO import_dest1
  import_dest1 | zt1                       | griddb_server |             | 
  import_dest1 | zt2                       | griddb_server |             | 
  import_dest1 | zt3                       | griddb_server |             | 
-(273 rows)
+(274 rows)
 
 --Testcase 767:
 \d import_dest1.*
@@ -11995,6 +11996,17 @@ Server: griddb_server
  v      | bytea   |           |          |         | 
 Server: griddb_server
 
+                          Foreign table "import_dest1.tbl06"
+ Column |            Type             | Collation | Nullable | Default | FDW options  
+--------+-----------------------------+-----------+----------+---------+--------------
+ id     | integer                     |           |          |         | (key 'true')
+ c1     | double precision            |           |          |         | 
+ c2     | bigint                      |           |          |         | 
+ c3     | text                        |           |          |         | 
+ c4     | boolean                     |           |          |         | 
+ c5     | timestamp without time zone |           |          |         | 
+Server: griddb_server
+
                    Foreign table "import_dest1.tenk"
    Column    |  Type   | Collation | Nullable | Default | FDW options  
 -------------+---------+-----------+----------+---------+--------------
@@ -12674,6 +12686,7 @@ IMPORT FOREIGN SCHEMA import_source EXCEPT (t1, "x 4", nonesuch, t4_part)
  import_dest4 | tbl03                     | griddb_server |             | 
  import_dest4 | tbl04                     | griddb_server |             | 
  import_dest4 | tbl05                     | griddb_server |             | 
+ import_dest4 | tbl06                     | griddb_server |             | 
  import_dest4 | tenk                      | griddb_server |             | 
  import_dest4 | tenk1                     | griddb_server |             | 
  import_dest4 | tenk2                     | griddb_server |             | 
@@ -12723,7 +12736,7 @@ IMPORT FOREIGN SCHEMA import_source EXCEPT (t1, "x 4", nonesuch, t4_part)
  import_dest4 | zt1                       | griddb_server |             | 
  import_dest4 | zt2                       | griddb_server |             | 
  import_dest4 | zt3                       | griddb_server |             | 
-(273 rows)
+(274 rows)
 
 -- Assorted error cases
 IMPORT FOREIGN SCHEMA import_source FROM SERVER :DB_SERVERNAME INTO import_dest4;
@@ -12952,6 +12965,7 @@ psql:sql/15.0/ported_postgres_fdw.sql:3479: NOTICE:  relation "tbl02" already ex
 psql:sql/15.0/ported_postgres_fdw.sql:3479: NOTICE:  relation "tbl03" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3479: NOTICE:  relation "tbl04" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3479: NOTICE:  relation "tbl05" already exists, skipping
+psql:sql/15.0/ported_postgres_fdw.sql:3479: NOTICE:  relation "tbl06" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3479: NOTICE:  relation "tenk" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3479: NOTICE:  relation "tenk1" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3479: NOTICE:  relation "tenk2" already exists, skipping
@@ -13226,6 +13240,7 @@ psql:sql/15.0/ported_postgres_fdw.sql:3480: NOTICE:  relation "tbl02" already ex
 psql:sql/15.0/ported_postgres_fdw.sql:3480: NOTICE:  relation "tbl03" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3480: NOTICE:  relation "tbl04" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3480: NOTICE:  relation "tbl05" already exists, skipping
+psql:sql/15.0/ported_postgres_fdw.sql:3480: NOTICE:  relation "tbl06" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3480: NOTICE:  relation "tenk" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3480: NOTICE:  relation "tenk1" already exists, skipping
 psql:sql/15.0/ported_postgres_fdw.sql:3480: NOTICE:  relation "tenk2" already exists, skipping
@@ -14427,7 +14442,7 @@ DETAIL:  drop cascades to column c8 of foreign table ft1
 drop cascades to column c8 of foreign table ft2
 --Testcase 839:
 DROP SCHEMA "S 1" CASCADE;
-psql:sql/15.0/ported_postgres_fdw.sql:4462: NOTICE:  drop cascades to 277 other objects
+psql:sql/15.0/ported_postgres_fdw.sql:4462: NOTICE:  drop cascades to 278 other objects
 DETAIL:  drop cascades to foreign table "S 1".float4_tbl
 drop cascades to foreign table "S 1".float4_tbl_temp
 drop cascades to foreign table "S 1".float8_tbl
@@ -14528,14 +14543,14 @@ drop cascades to foreign table "S 1".inserttest3
 drop cascades to foreign table "S 1".j11
 drop cascades to foreign table "S 1".j12
 drop cascades to foreign table "S 1".j21
-and 177 other objects (see server log for list)
+and 178 other objects (see server log for list)
 --Testcase 840:
 DROP TABLE loct3 CASCADE;
 --Testcase 841:
 DROP TYPE typ1 CASCADE;
 --Testcase 842:
 DROP SCHEMA import_dest1 CASCADE;
-psql:sql/15.0/ported_postgres_fdw.sql:4468: NOTICE:  drop cascades to 273 other objects
+psql:sql/15.0/ported_postgres_fdw.sql:4468: NOTICE:  drop cascades to 274 other objects
 DETAIL:  drop cascades to foreign table import_dest1.float4_tbl
 drop cascades to foreign table import_dest1.float4_tbl_temp
 drop cascades to foreign table import_dest1.float8_tbl
@@ -14636,14 +14651,14 @@ drop cascades to foreign table import_dest1.inserttest3
 drop cascades to foreign table import_dest1.j11
 drop cascades to foreign table import_dest1.j12
 drop cascades to foreign table import_dest1.j21
-and 173 other objects (see server log for list)
+and 174 other objects (see server log for list)
 --Testcase 843:
 DROP SCHEMA import_dest2 CASCADE;
 --Testcase 844:
 DROP SCHEMA import_dest3 CASCADE;
 --Testcase 845:
 DROP SCHEMA import_dest4 CASCADE;
-psql:sql/15.0/ported_postgres_fdw.sql:4474: NOTICE:  drop cascades to 273 other objects
+psql:sql/15.0/ported_postgres_fdw.sql:4474: NOTICE:  drop cascades to 274 other objects
 DETAIL:  drop cascades to foreign table import_dest4.t1
 drop cascades to foreign table import_dest4.float4_tbl
 drop cascades to foreign table import_dest4.float4_tbl_temp
@@ -14744,7 +14759,7 @@ drop cascades to foreign table import_dest4.inserttest3
 drop cascades to foreign table import_dest4.j11
 drop cascades to foreign table import_dest4.j12
 drop cascades to foreign table import_dest4.j21
-and 173 other objects (see server log for list)
+and 174 other objects (see server log for list)
 --Testcase 846:
 DROP SCHEMA import_dest5 CASCADE;
 --Testcase 847:

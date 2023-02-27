@@ -235,6 +235,7 @@ typedef struct ConversionLocation
  */
 PG_FUNCTION_INFO_V1(jdbc_fdw_handler);
 PG_FUNCTION_INFO_V1(jdbc_fdw_version);
+PG_FUNCTION_INFO_V1(jdbc_exec);
 /*
  * FDW callback routines
  */
@@ -351,6 +352,10 @@ static void jdbc_bind_junk_column_value(jdbcFdwModifyState * fmstate,
 										Oid foreignTableId,
 										int bindnum);
 
+static void prepTuplestoreResult(FunctionCallInfo fcinfo);
+static Jconn *jdbc_get_conn_by_server_name(char *servername);
+static TupleDesc jdbc_create_descriptor(Jconn *conn, int *resultSetID);
+static Oid jdbc_convert_type_name(char *typname);
 
 /*
  * Foreign-data wrapper handler function: return a struct with pointers to my
@@ -400,6 +405,177 @@ jdbc_fdw_version(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_INT32(CODE_VERSION);
 }
+
+Datum
+jdbc_exec(PG_FUNCTION_ARGS)
+{
+	Jconn	*conn		= NULL;
+	char	*servername	= NULL;
+	char	*sql		= NULL;
+
+	Jresult *volatile res	= NULL;
+	int resultSetID 		= 0;
+
+	TupleDesc	tupleDescriptor;
+
+	PG_TRY();
+	{
+		if (PG_NARGS() == 2)
+		{
+			servername = text_to_cstring(PG_GETARG_TEXT_PP(0));
+			sql = text_to_cstring(PG_GETARG_TEXT_PP(1));
+			conn = jdbc_get_conn_by_server_name(servername);
+		}
+		else
+		{
+			/* shouldn't happen */
+			elog(ERROR, "jdbc_fdw: wrong number of arguments");
+		}
+
+		if (!conn)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_DOES_NOT_EXIST),
+					 errmsg("jdbc_fdw: server \"%s\" not available", servername)));
+		}
+
+		prepTuplestoreResult(fcinfo);
+
+		/* Execute sql query */
+		res = jq_exec_id(conn, sql, &resultSetID);
+
+		if (*res != PGRES_COMMAND_OK)
+			jdbc_fdw_report_error(ERROR, res, conn, false, sql);
+
+		/* Create temp descriptor */
+		tupleDescriptor = jdbc_create_descriptor(conn, &resultSetID);
+
+		jq_iterate_all_row(fcinfo, conn, tupleDescriptor, resultSetID);
+	}
+	PG_FINALLY();
+	{
+		if (res)
+			jq_clear(res);
+
+		if (resultSetID != 0)
+			jq_release_resultset_id(conn, resultSetID);
+
+		tuplestore_donestoring((ReturnSetInfo *) fcinfo->resultinfo->setResult);
+
+		if (conn)
+		{
+			jdbc_release_connection(conn);
+			conn = NULL;
+		}
+	}
+	PG_END_TRY();
+
+	return (Datum) 0;
+}
+
+/*
+ * Verify function caller can handle a tuplestore result, and set up for that.
+ *
+ * Note: if the caller returns without actually creating a tuplestore, the
+ * executor will treat the function result as an empty set.
+ */
+static void
+prepTuplestoreResult(FunctionCallInfo fcinfo)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+
+	/* check to see if query supports us returning a tuplestore */
+	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("set-valued function called in context that cannot accept a set")));
+	if (!(rsinfo->allowedModes & SFRM_Materialize))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("materialize mode required, but it is not allowed in this context")));
+
+	/* let the executor know we're sending back a tuplestore */
+	rsinfo->returnMode = SFRM_Materialize;
+
+	/* caller must fill these to return a non-empty result */
+	rsinfo->setResult = NULL;
+	rsinfo->setDesc = NULL;
+}
+
+/*
+ * jdbc_get_conn_by_server_name
+ * Get connection by the given server name
+ */
+static Jconn *
+jdbc_get_conn_by_server_name(char *servername)
+{
+	ForeignServer *foreign_server = NULL;
+	UserMapping *user_mapping;
+	Jconn *conn = NULL;
+
+	foreign_server = GetForeignServerByName(servername, false);
+
+	if (foreign_server)
+	{
+		Oid serverid = foreign_server->serverid;
+		Oid userid = GetUserId();
+
+		user_mapping = GetUserMapping(userid, serverid);
+		conn = jdbc_get_connection(foreign_server, user_mapping, false);
+	}
+
+	return conn;
+}
+
+/*
+ * jdbc_create_descriptor
+ * Create TypleDesc from result set
+ */
+static TupleDesc
+jdbc_create_descriptor(Jconn *conn, int *resultSetID)
+{
+	TupleDesc	desc;
+	List	   *column_info_list;
+	ListCell   *column_lc;
+	int			column_num = 0;
+	int			att_num = 0;
+
+	column_info_list = jq_get_column_infos_without_key(conn, resultSetID, &column_num);
+
+	desc = CreateTemplateTupleDesc(column_num);
+	foreach(column_lc, column_info_list)
+	{
+		JcolumnInfo *column_info = (JcolumnInfo *) lfirst(column_lc);
+
+		/* get oid from type name of column */
+		Oid tmpOid = jdbc_convert_type_name(column_info->column_type);
+
+		TupleDescInitEntry(desc, att_num + 1, NULL, tmpOid, -1, 0);
+		att_num++;
+	}
+
+	return BlessTupleDesc(desc);
+}
+
+/*
+ * Given a type name expressed as a string, look it up and return Oid
+ */
+static Oid
+jdbc_convert_type_name(char *typname)
+{
+	Oid			oid;
+
+	oid = DatumGetObjectId(DirectFunctionCall1(regtypein,
+											   CStringGetDatum(typname)));
+
+	if (!OidIsValid(oid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("type \"%s\" does not exist", typname)));
+
+	return oid;
+}
+
 /*
  * jdbcGetForeignRelSize Estimate # of rows and width of the result of the
  * scan

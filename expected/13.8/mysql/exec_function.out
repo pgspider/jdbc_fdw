@@ -1,0 +1,972 @@
+--
+-- MySql
+-- Test jdbc_exc() function
+--
+\set ECHO none
+\i sql/13.8/exec_function.sql
+--Testcase 1:
+CREATE EXTENSION :DB_EXTENSIONNAME;
+--Testcase 2:
+CREATE SERVER :DB_SERVERNAME FOREIGN DATA WRAPPER :DB_EXTENSIONNAME
+OPTIONS (drivername :DB_DRIVERNAME,
+url :DB_URL,
+querytimeout '15',
+jarfile :DB_DRIVERPATH,
+maxheapsize '600');
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS (username :DB_USER,password :DB_PASS);
+-- ===================================================================
+-- Select without condition clause, without alias
+-- ===================================================================
+-- select all
+--Testcase 5:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06');
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 6:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06');
+                           jdbc_exec                            
+----------------------------------------------------------------
+ (1,31.12,128912,anystring,t,"Fri Dec 31 16:00:00 1999 PST")
+ (2,2565.56,6565,example,f,"Fri Dec 31 16:00:00 1999 PST")
+ (3,-121.122,1829812,thing,t,"Fri Dec 31 16:00:00 1999 PST")
+ (4,55.23,523,"!)@(#)!_#!",f,"Wed Oct 31 16:00:00 1990 PST")
+ (5,-1.12,22342,"(!)JAWLFJ",f,"Sun Oct 31 17:00:00 2010 PDT")
+ (6,45021.21,2121,example,f,"Thu Sep 30 17:00:00 1999 PDT")
+ (7,121.9741,23241,thing,f,"Thu Sep 30 17:00:00 2010 PDT")
+ (8,75,316,example,f,"Fri Oct 01 03:10:00 1999 PDT")
+ (9,6867.34,8916,thing,f,"Fri Oct 01 03:10:00 2010 PDT")
+ (10,31.12,128912,group_1,t,"Fri Dec 31 16:00:00 1999 PST")
+ (11,2565.56,6565,group_1,f,"Fri Dec 31 16:00:00 1999 PST")
+ (12,-121.122,1829812,group_1,t,"Fri Dec 31 16:00:00 1999 PST")
+ (13,55.23,523,group_2,f,"Wed Oct 31 16:00:00 1990 PST")
+ (14,-1.12,22342,group_2,f,"Sun Oct 31 17:00:00 2010 PDT")
+ (15,45021.21,2121,group_3,f,"Thu Sep 30 17:00:00 1999 PDT")
+ (16,121.9741,23241,group_3,f,"Thu Sep 30 17:00:00 2010 PDT")
+ (17,75,316,group_3,f,"Fri Oct 01 03:10:00 1999 PDT")
+ (18,6867.34,8916,group_3,f,"Fri Oct 01 03:10:00 2010 PDT")
+(18 rows)
+
+-- select column
+--Testcase 7:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06');
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT id, c1, c2, c3 FROM tbl06'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 8:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06');
+           jdbc_exec           
+-------------------------------
+ (1,31.12,128912,anystring)
+ (2,2565.56,6565,example)
+ (3,-121.122,1829812,thing)
+ (4,55.23,523,"!)@(#)!_#!")
+ (5,-1.12,22342,"(!)JAWLFJ")
+ (6,45021.21,2121,example)
+ (7,121.9741,23241,thing)
+ (8,75,316,example)
+ (9,6867.34,8916,thing)
+ (10,31.12,128912,group_1)
+ (11,2565.56,6565,group_1)
+ (12,-121.122,1829812,group_1)
+ (13,55.23,523,group_2)
+ (14,-1.12,22342,group_2)
+ (15,45021.21,2121,group_3)
+ (16,121.9741,23241,group_3)
+ (17,75,316,group_3)
+ (18,6867.34,8916,group_3)
+(18 rows)
+
+-- aggregate function
+--Testcase 9:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1) FROM tbl06');
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT avg(c1) FROM tbl06'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 10:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1) FROM tbl06');
+      jdbc_exec      
+---------------------
+ (6068.354677777777)
+(1 row)
+
+--Testcase 11:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT sum(c1) FROM tbl06');
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT sum(c1) FROM tbl06'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 12:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT sum(c1) FROM tbl06');
+   jdbc_exec   
+---------------
+ (109230.3842)
+(1 row)
+
+--Testcase 13:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT max(c1) FROM tbl06');
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT max(c1) FROM tbl06'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 14:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT max(c1) FROM tbl06');
+ jdbc_exec  
+------------
+ (45021.21)
+(1 row)
+
+-- ===================================================================
+-- Select without condition clause, with alias
+-- ===================================================================
+-- select all
+--Testcase 15:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06'::text)
+(3 rows)
+
+--Testcase 16:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example    | f  | Thu Sep 30 17:00:00 1999 PDT
+  7 | 121.9741 |   23241 | thing      | f  | Thu Sep 30 17:00:00 2010 PDT
+  8 |       75 |     316 | example    | f  | Fri Oct 01 03:10:00 1999 PDT
+  9 |  6867.34 |    8916 | thing      | f  | Fri Oct 01 03:10:00 2010 PDT
+ 10 |    31.12 |  128912 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+ 11 |  2565.56 |    6565 | group_1    | f  | Fri Dec 31 16:00:00 1999 PST
+ 12 | -121.122 | 1829812 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+ 13 |    55.23 |     523 | group_2    | f  | Wed Oct 31 16:00:00 1990 PST
+ 14 |    -1.12 |   22342 | group_2    | f  | Sun Oct 31 17:00:00 2010 PDT
+ 15 | 45021.21 |    2121 | group_3    | f  | Thu Sep 30 17:00:00 1999 PDT
+ 16 | 121.9741 |   23241 | group_3    | f  | Thu Sep 30 17:00:00 2010 PDT
+ 17 |       75 |     316 | group_3    | f  | Fri Oct 01 03:10:00 1999 PDT
+ 18 |  6867.34 |    8916 | group_3    | f  | Fri Oct 01 03:10:00 2010 PDT
+(18 rows)
+
+-- select column
+--Testcase 17:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text);
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=52)
+   Output: id, c1, c2, c3
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT id, c1, c2, c3 FROM tbl06'::text)
+(3 rows)
+
+--Testcase 18:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text);
+ id |    c1    |   c2    |     c3     
+----+----------+---------+------------
+  1 |    31.12 |  128912 | anystring
+  2 |  2565.56 |    6565 | example
+  3 | -121.122 | 1829812 | thing
+  4 |    55.23 |     523 | !)@(#)!_#!
+  5 |    -1.12 |   22342 | (!)JAWLFJ
+  6 | 45021.21 |    2121 | example
+  7 | 121.9741 |   23241 | thing
+  8 |       75 |     316 | example
+  9 |  6867.34 |    8916 | thing
+ 10 |    31.12 |  128912 | group_1
+ 11 |  2565.56 |    6565 | group_1
+ 12 | -121.122 | 1829812 | group_1
+ 13 |    55.23 |     523 | group_2
+ 14 |    -1.12 |   22342 | group_2
+ 15 | 45021.21 |    2121 | group_3
+ 16 | 121.9741 |   23241 | group_3
+ 17 |       75 |     316 | group_3
+ 18 |  6867.34 |    8916 | group_3
+(18 rows)
+
+-- aggregate function
+--Testcase 19:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1) FROM tbl06') as t(result double precision);
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=8)
+   Output: result
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT avg(c1) FROM tbl06'::text)
+(3 rows)
+
+--Testcase 20:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1) FROM tbl06') as t(result double precision);
+      result       
+-------------------
+ 6068.354677777777
+(1 row)
+
+--Testcase 21:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT sum(c1) FROM tbl06') as t(result double precision);
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=8)
+   Output: result
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT sum(c1) FROM tbl06'::text)
+(3 rows)
+
+--Testcase 22:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT sum(c1) FROM tbl06') as t(result double precision);
+   result    
+-------------
+ 109230.3842
+(1 row)
+
+--Testcase 23:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT max(c1) FROM tbl06') as t(result double precision);
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=8)
+   Output: result
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT max(c1) FROM tbl06'::text)
+(3 rows)
+
+--Testcase 24:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT max(c1) FROM tbl06') as t(result double precision);
+  result  
+----------
+ 45021.21
+(1 row)
+
+--Testcase 25:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1), sum(c1), max(c1) FROM tbl06') as t(avg_result double precision, sum_result double precision, max_result double precision);
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=24)
+   Output: avg_result, sum_result, max_result
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT avg(c1), sum(c1), max(c1) FROM tbl06'::text)
+(3 rows)
+
+--Testcase 26:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1), sum(c1), max(c1) FROM tbl06') as t(avg_result double precision, sum_result double precision, max_result double precision);
+    avg_result     | sum_result  | max_result 
+-------------------+-------------+------------
+ 6068.354677777777 | 109230.3842 |   45021.21
+(1 row)
+
+-- ===================================================================
+-- Select with condition clause, without alias
+-- ===================================================================
+-- select with limit
+--Testcase 27:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 LIMIT 5');
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 LIMIT 5'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 28:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 LIMIT 5');
+                          jdbc_exec                           
+--------------------------------------------------------------
+ (1,31.12,128912,anystring,t,"Fri Dec 31 16:00:00 1999 PST")
+ (2,2565.56,6565,example,f,"Fri Dec 31 16:00:00 1999 PST")
+ (3,-121.122,1829812,thing,t,"Fri Dec 31 16:00:00 1999 PST")
+ (4,55.23,523,"!)@(#)!_#!",f,"Wed Oct 31 16:00:00 1990 PST")
+ (5,-1.12,22342,"(!)JAWLFJ",f,"Sun Oct 31 17:00:00 2010 PDT")
+(5 rows)
+
+--Testcase 29:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06 LIMIT 5');
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT id, c1, c2, c3 FROM tbl06 LIMIT 5'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 30:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06 LIMIT 5');
+          jdbc_exec          
+-----------------------------
+ (1,31.12,128912,anystring)
+ (2,2565.56,6565,example)
+ (3,-121.122,1829812,thing)
+ (4,55.23,523,"!)@(#)!_#!")
+ (5,-1.12,22342,"(!)JAWLFJ")
+(5 rows)
+
+-- where clause
+--Testcase 31:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7');
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 WHERE id < 7'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 32:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7');
+                          jdbc_exec                           
+--------------------------------------------------------------
+ (1,31.12,128912,anystring,t,"Fri Dec 31 16:00:00 1999 PST")
+ (2,2565.56,6565,example,f,"Fri Dec 31 16:00:00 1999 PST")
+ (3,-121.122,1829812,thing,t,"Fri Dec 31 16:00:00 1999 PST")
+ (4,55.23,523,"!)@(#)!_#!",f,"Wed Oct 31 16:00:00 1990 PST")
+ (5,-1.12,22342,"(!)JAWLFJ",f,"Sun Oct 31 17:00:00 2010 PDT")
+ (6,45021.21,2121,example,f,"Thu Sep 30 17:00:00 1999 PDT")
+(6 rows)
+
+--Testcase 71:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7 AND c4 = TRUE');
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 WHERE id < 7 AND c4 = TRUE'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 72:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7 AND c4 = TRUE');
+                          jdbc_exec                          
+-------------------------------------------------------------
+ (1,31.12,128912,anystring,t,"Fri Dec 31 16:00:00 1999 PST")
+ (3,-121.122,1829812,thing,t,"Fri Dec 31 16:00:00 1999 PST")
+(2 rows)
+
+--Testcase 73:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7 AND (c1 < 0 OR c1 > 1000)');
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 WHERE id < 7 AND (c1 < 0 OR c1 > 1000)'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 74:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7 AND (c1 < 0 OR c1 > 1000)');
+                          jdbc_exec                           
+--------------------------------------------------------------
+ (2,2565.56,6565,example,f,"Fri Dec 31 16:00:00 1999 PST")
+ (3,-121.122,1829812,thing,t,"Fri Dec 31 16:00:00 1999 PST")
+ (5,-1.12,22342,"(!)JAWLFJ",f,"Sun Oct 31 17:00:00 2010 PDT")
+ (6,45021.21,2121,example,f,"Thu Sep 30 17:00:00 1999 PDT")
+(4 rows)
+
+--Testcase 75:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT COUNT(id), c3 FROM tbl06 GROUP BY c3 HAVING COUNT(id) > 1');
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT COUNT(id), c3 FROM tbl06 GROUP BY c3 HAVING COUNT(id) > 1'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 76:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT COUNT(id), c3 FROM tbl06 GROUP BY c3 HAVING COUNT(id) > 1');
+  jdbc_exec  
+-------------
+ (3,example)
+ (3,thing)
+ (3,group_1)
+ (2,group_2)
+ (4,group_3)
+(5 rows)
+
+-- order by
+--Testcase 33:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 ORDER BY id');
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 ORDER BY id'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 34:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 ORDER BY id');
+                           jdbc_exec                            
+----------------------------------------------------------------
+ (1,31.12,128912,anystring,t,"Fri Dec 31 16:00:00 1999 PST")
+ (2,2565.56,6565,example,f,"Fri Dec 31 16:00:00 1999 PST")
+ (3,-121.122,1829812,thing,t,"Fri Dec 31 16:00:00 1999 PST")
+ (4,55.23,523,"!)@(#)!_#!",f,"Wed Oct 31 16:00:00 1990 PST")
+ (5,-1.12,22342,"(!)JAWLFJ",f,"Sun Oct 31 17:00:00 2010 PDT")
+ (6,45021.21,2121,example,f,"Thu Sep 30 17:00:00 1999 PDT")
+ (7,121.9741,23241,thing,f,"Thu Sep 30 17:00:00 2010 PDT")
+ (8,75,316,example,f,"Fri Oct 01 03:10:00 1999 PDT")
+ (9,6867.34,8916,thing,f,"Fri Oct 01 03:10:00 2010 PDT")
+ (10,31.12,128912,group_1,t,"Fri Dec 31 16:00:00 1999 PST")
+ (11,2565.56,6565,group_1,f,"Fri Dec 31 16:00:00 1999 PST")
+ (12,-121.122,1829812,group_1,t,"Fri Dec 31 16:00:00 1999 PST")
+ (13,55.23,523,group_2,f,"Wed Oct 31 16:00:00 1990 PST")
+ (14,-1.12,22342,group_2,f,"Sun Oct 31 17:00:00 2010 PDT")
+ (15,45021.21,2121,group_3,f,"Thu Sep 30 17:00:00 1999 PDT")
+ (16,121.9741,23241,group_3,f,"Thu Sep 30 17:00:00 2010 PDT")
+ (17,75,316,group_3,f,"Fri Oct 01 03:10:00 1999 PDT")
+ (18,6867.34,8916,group_3,f,"Fri Oct 01 03:10:00 2010 PDT")
+(18 rows)
+
+--Testcase 35:
+EXPLAIN VERBOSE
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 ORDER BY id DESC');
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..5.02 rows=1000 width=32)
+   Output: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 ORDER BY id DESC'::text)
+   ->  Result  (cost=0.00..0.01 rows=1 width=0)
+(3 rows)
+
+--Testcase 36:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 ORDER BY id DESC');
+                           jdbc_exec                            
+----------------------------------------------------------------
+ (18,6867.34,8916,group_3,f,"Fri Oct 01 03:10:00 2010 PDT")
+ (17,75,316,group_3,f,"Fri Oct 01 03:10:00 1999 PDT")
+ (16,121.9741,23241,group_3,f,"Thu Sep 30 17:00:00 2010 PDT")
+ (15,45021.21,2121,group_3,f,"Thu Sep 30 17:00:00 1999 PDT")
+ (14,-1.12,22342,group_2,f,"Sun Oct 31 17:00:00 2010 PDT")
+ (13,55.23,523,group_2,f,"Wed Oct 31 16:00:00 1990 PST")
+ (12,-121.122,1829812,group_1,t,"Fri Dec 31 16:00:00 1999 PST")
+ (11,2565.56,6565,group_1,f,"Fri Dec 31 16:00:00 1999 PST")
+ (10,31.12,128912,group_1,t,"Fri Dec 31 16:00:00 1999 PST")
+ (9,6867.34,8916,thing,f,"Fri Oct 01 03:10:00 2010 PDT")
+ (8,75,316,example,f,"Fri Oct 01 03:10:00 1999 PDT")
+ (7,121.9741,23241,thing,f,"Thu Sep 30 17:00:00 2010 PDT")
+ (6,45021.21,2121,example,f,"Thu Sep 30 17:00:00 1999 PDT")
+ (5,-1.12,22342,"(!)JAWLFJ",f,"Sun Oct 31 17:00:00 2010 PDT")
+ (4,55.23,523,"!)@(#)!_#!",f,"Wed Oct 31 16:00:00 1990 PST")
+ (3,-121.122,1829812,thing,t,"Fri Dec 31 16:00:00 1999 PST")
+ (2,2565.56,6565,example,f,"Fri Dec 31 16:00:00 1999 PST")
+ (1,31.12,128912,anystring,t,"Fri Dec 31 16:00:00 1999 PST")
+(18 rows)
+
+-- ===================================================================
+-- Select with condition clause, with alias
+-- ===================================================================
+-- select with limit
+--Testcase 37:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 LIMIT 5') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 LIMIT 5'::text)
+(3 rows)
+
+--Testcase 38:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 LIMIT 5') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+(5 rows)
+
+--Testcase 39:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) LIMIT 5;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Limit  (cost=0.00..0.05 rows=5 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   ->  Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+         Output: id, c1, c2, c3, c4, c5
+         Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06'::text)
+(5 rows)
+
+--Testcase 40:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) LIMIT 5;
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+(5 rows)
+
+--Testcase 41:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06 LIMIT 5') as t(id int, c1 double precision, c2 bigint, c3 text);
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=52)
+   Output: id, c1, c2, c3
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT id, c1, c2, c3 FROM tbl06 LIMIT 5'::text)
+(3 rows)
+
+--Testcase 42:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06 LIMIT 5') as t(id int, c1 double precision, c2 bigint, c3 text);
+ id |    c1    |   c2    |     c3     
+----+----------+---------+------------
+  1 |    31.12 |  128912 | anystring
+  2 |  2565.56 |    6565 | example
+  3 | -121.122 | 1829812 | thing
+  4 |    55.23 |     523 | !)@(#)!_#!
+  5 |    -1.12 |   22342 | (!)JAWLFJ
+(5 rows)
+
+--Testcase 43:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text) LIMIT 5;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Limit  (cost=0.00..0.05 rows=5 width=52)
+   Output: id, c1, c2, c3
+   ->  Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=52)
+         Output: id, c1, c2, c3
+         Function Call: jdbc_exec('mysql_server'::text, 'SELECT id, c1, c2, c3 FROM tbl06'::text)
+(5 rows)
+
+--Testcase 44:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text) LIMIT 5;
+ id |    c1    |   c2    |     c3     
+----+----------+---------+------------
+  1 |    31.12 |  128912 | anystring
+  2 |  2565.56 |    6565 | example
+  3 | -121.122 | 1829812 | thing
+  4 |    55.23 |     523 | !)@(#)!_#!
+  5 |    -1.12 |   22342 | (!)JAWLFJ
+(5 rows)
+
+-- where clause
+--Testcase 45:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 WHERE id < 7'::text)
+(3 rows)
+
+--Testcase 46:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example    | f  | Thu Sep 30 17:00:00 1999 PDT
+(6 rows)
+
+--Testcase 47:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) WHERE id < 7;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..12.50 rows=333 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06'::text)
+   Filter: (t.id < 7)
+(4 rows)
+
+--Testcase 48:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) WHERE id < 7;
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example    | f  | Thu Sep 30 17:00:00 1999 PDT
+(6 rows)
+
+--Testcase 77:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7 AND c4 = TRUE') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 WHERE id < 7 AND c4 = TRUE'::text)
+(3 rows)
+
+--Testcase 78:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7 AND c4 = TRUE') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+ id |    c1    |   c2    |    c3     | c4 |              c5              
+----+----------+---------+-----------+----+------------------------------
+  1 |    31.12 |  128912 | anystring | t  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing     | t  | Fri Dec 31 16:00:00 1999 PST
+(2 rows)
+
+--Testcase 79:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) WHERE id < 7 AND c4 = TRUE;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..12.50 rows=167 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06'::text)
+   Filter: (t.c4 AND (t.id < 7))
+(4 rows)
+
+--Testcase 80:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) WHERE id < 7 AND c4 = TRUE;
+ id |    c1    |   c2    |    c3     | c4 |              c5              
+----+----------+---------+-----------+----+------------------------------
+  1 |    31.12 |  128912 | anystring | t  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing     | t  | Fri Dec 31 16:00:00 1999 PST
+(2 rows)
+
+--Testcase 81:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7 AND (c1 < 0 OR c1 > 1000)') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 WHERE id < 7 AND (c1 < 0 OR c1 > 1000)'::text)
+(3 rows)
+
+--Testcase 82:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 WHERE id < 7 AND (c1 < 0 OR c1 > 1000)') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+ id |    c1    |   c2    |    c3     | c4 |              c5              
+----+----------+---------+-----------+----+------------------------------
+  2 |  2565.56 |    6565 | example   | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing     | t  | Fri Dec 31 16:00:00 1999 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ | f  | Sun Oct 31 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example   | f  | Thu Sep 30 17:00:00 1999 PDT
+(4 rows)
+
+--Testcase 83:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) WHERE id < 7 AND (c1 < 0 OR c1 > 1000);
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..17.50 rows=185 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06'::text)
+   Filter: ((t.id < 7) AND ((t.c1 < '0'::double precision) OR (t.c1 > '1000'::double precision)))
+(4 rows)
+
+--Testcase 84:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) WHERE id < 7 AND (c1 < 0 OR c1 > 1000);
+ id |    c1    |   c2    |    c3     | c4 |              c5              
+----+----------+---------+-----------+----+------------------------------
+  2 |  2565.56 |    6565 | example   | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing     | t  | Fri Dec 31 16:00:00 1999 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ | f  | Sun Oct 31 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example   | f  | Thu Sep 30 17:00:00 1999 PDT
+(4 rows)
+
+--Testcase 85:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT COUNT(id), c3 FROM tbl06 GROUP BY c3 HAVING COUNT(id) > 1') as t(id bigint, c3 text);
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=40)
+   Output: id, c3
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT COUNT(id), c3 FROM tbl06 GROUP BY c3 HAVING COUNT(id) > 1'::text)
+(3 rows)
+
+--Testcase 86:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT COUNT(id), c3 FROM tbl06 GROUP BY c3 HAVING COUNT(id) > 1') as t(id bigint, c3 text);
+ id |   c3    
+----+---------
+  3 | example
+  3 | thing
+  3 | group_1
+  2 | group_2
+  4 | group_3
+(5 rows)
+
+-- order by
+--Testcase 49:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 ORDER BY id') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 ORDER BY id'::text)
+(3 rows)
+
+--Testcase 50:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 ORDER BY id') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example    | f  | Thu Sep 30 17:00:00 1999 PDT
+  7 | 121.9741 |   23241 | thing      | f  | Thu Sep 30 17:00:00 2010 PDT
+  8 |       75 |     316 | example    | f  | Fri Oct 01 03:10:00 1999 PDT
+  9 |  6867.34 |    8916 | thing      | f  | Fri Oct 01 03:10:00 2010 PDT
+ 10 |    31.12 |  128912 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+ 11 |  2565.56 |    6565 | group_1    | f  | Fri Dec 31 16:00:00 1999 PST
+ 12 | -121.122 | 1829812 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+ 13 |    55.23 |     523 | group_2    | f  | Wed Oct 31 16:00:00 1990 PST
+ 14 |    -1.12 |   22342 | group_2    | f  | Sun Oct 31 17:00:00 2010 PDT
+ 15 | 45021.21 |    2121 | group_3    | f  | Thu Sep 30 17:00:00 1999 PDT
+ 16 | 121.9741 |   23241 | group_3    | f  | Thu Sep 30 17:00:00 2010 PDT
+ 17 |       75 |     316 | group_3    | f  | Fri Oct 01 03:10:00 1999 PDT
+ 18 |  6867.34 |    8916 | group_3    | f  | Fri Oct 01 03:10:00 2010 PDT
+(18 rows)
+
+--Testcase 51:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) ORDER BY id;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Sort  (cost=59.83..62.33 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Sort Key: t.id
+   ->  Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+         Output: id, c1, c2, c3, c4, c5
+         Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06'::text)
+(6 rows)
+
+--Testcase 52:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) ORDER BY id;
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example    | f  | Thu Sep 30 17:00:00 1999 PDT
+  7 | 121.9741 |   23241 | thing      | f  | Thu Sep 30 17:00:00 2010 PDT
+  8 |       75 |     316 | example    | f  | Fri Oct 01 03:10:00 1999 PDT
+  9 |  6867.34 |    8916 | thing      | f  | Fri Oct 01 03:10:00 2010 PDT
+ 10 |    31.12 |  128912 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+ 11 |  2565.56 |    6565 | group_1    | f  | Fri Dec 31 16:00:00 1999 PST
+ 12 | -121.122 | 1829812 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+ 13 |    55.23 |     523 | group_2    | f  | Wed Oct 31 16:00:00 1990 PST
+ 14 |    -1.12 |   22342 | group_2    | f  | Sun Oct 31 17:00:00 2010 PDT
+ 15 | 45021.21 |    2121 | group_3    | f  | Thu Sep 30 17:00:00 1999 PDT
+ 16 | 121.9741 |   23241 | group_3    | f  | Thu Sep 30 17:00:00 2010 PDT
+ 17 |       75 |     316 | group_3    | f  | Fri Oct 01 03:10:00 1999 PDT
+ 18 |  6867.34 |    8916 | group_3    | f  | Fri Oct 01 03:10:00 2010 PDT
+(18 rows)
+
+--Testcase 53:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 ORDER BY id DESC') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06 ORDER BY id DESC'::text)
+(3 rows)
+
+--Testcase 54:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06 ORDER BY id DESC') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz);
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+ 18 |  6867.34 |    8916 | group_3    | f  | Fri Oct 01 03:10:00 2010 PDT
+ 17 |       75 |     316 | group_3    | f  | Fri Oct 01 03:10:00 1999 PDT
+ 16 | 121.9741 |   23241 | group_3    | f  | Thu Sep 30 17:00:00 2010 PDT
+ 15 | 45021.21 |    2121 | group_3    | f  | Thu Sep 30 17:00:00 1999 PDT
+ 14 |    -1.12 |   22342 | group_2    | f  | Sun Oct 31 17:00:00 2010 PDT
+ 13 |    55.23 |     523 | group_2    | f  | Wed Oct 31 16:00:00 1990 PST
+ 12 | -121.122 | 1829812 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+ 11 |  2565.56 |    6565 | group_1    | f  | Fri Dec 31 16:00:00 1999 PST
+ 10 |    31.12 |  128912 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+  9 |  6867.34 |    8916 | thing      | f  | Fri Oct 01 03:10:00 2010 PDT
+  8 |       75 |     316 | example    | f  | Fri Oct 01 03:10:00 1999 PDT
+  7 | 121.9741 |   23241 | thing      | f  | Thu Sep 30 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example    | f  | Thu Sep 30 17:00:00 1999 PDT
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+(18 rows)
+
+--Testcase 55:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) ORDER BY id DESC;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Sort  (cost=59.83..62.33 rows=1000 width=61)
+   Output: id, c1, c2, c3, c4, c5
+   Sort Key: t.id DESC
+   ->  Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=61)
+         Output: id, c1, c2, c3, c4, c5
+         Function Call: jdbc_exec('mysql_server'::text, 'SELECT * FROM tbl06'::text)
+(6 rows)
+
+--Testcase 56:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT * FROM tbl06') as t(id int, c1 double precision, c2 bigint, c3 text, c4 boolean, c5 timestamptz) ORDER BY id DESC;
+ id |    c1    |   c2    |     c3     | c4 |              c5              
+----+----------+---------+------------+----+------------------------------
+ 18 |  6867.34 |    8916 | group_3    | f  | Fri Oct 01 03:10:00 2010 PDT
+ 17 |       75 |     316 | group_3    | f  | Fri Oct 01 03:10:00 1999 PDT
+ 16 | 121.9741 |   23241 | group_3    | f  | Thu Sep 30 17:00:00 2010 PDT
+ 15 | 45021.21 |    2121 | group_3    | f  | Thu Sep 30 17:00:00 1999 PDT
+ 14 |    -1.12 |   22342 | group_2    | f  | Sun Oct 31 17:00:00 2010 PDT
+ 13 |    55.23 |     523 | group_2    | f  | Wed Oct 31 16:00:00 1990 PST
+ 12 | -121.122 | 1829812 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+ 11 |  2565.56 |    6565 | group_1    | f  | Fri Dec 31 16:00:00 1999 PST
+ 10 |    31.12 |  128912 | group_1    | t  | Fri Dec 31 16:00:00 1999 PST
+  9 |  6867.34 |    8916 | thing      | f  | Fri Oct 01 03:10:00 2010 PDT
+  8 |       75 |     316 | example    | f  | Fri Oct 01 03:10:00 1999 PDT
+  7 | 121.9741 |   23241 | thing      | f  | Thu Sep 30 17:00:00 2010 PDT
+  6 | 45021.21 |    2121 | example    | f  | Thu Sep 30 17:00:00 1999 PDT
+  5 |    -1.12 |   22342 | (!)JAWLFJ  | f  | Sun Oct 31 17:00:00 2010 PDT
+  4 |    55.23 |     523 | !)@(#)!_#! | f  | Wed Oct 31 16:00:00 1990 PST
+  3 | -121.122 | 1829812 | thing      | t  | Fri Dec 31 16:00:00 1999 PST
+  2 |  2565.56 |    6565 | example    | f  | Fri Dec 31 16:00:00 1999 PST
+  1 |    31.12 |  128912 | anystring  | t  | Fri Dec 31 16:00:00 1999 PST
+(18 rows)
+
+-- aggregate function, where clause
+--Testcase 57:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1) FROM tbl06 WHERE id < 4') as t(result double precision);
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=8)
+   Output: result
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT avg(c1) FROM tbl06 WHERE id < 4'::text)
+(3 rows)
+
+--Testcase 58:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1) FROM tbl06 WHERE id < 4') as t(result double precision);
+ result  
+---------
+ 825.186
+(1 row)
+
+--Testcase 59:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT sum(c1) FROM tbl06 WHERE id < 4') as t(result double precision);
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=8)
+   Output: result
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT sum(c1) FROM tbl06 WHERE id < 4'::text)
+(3 rows)
+
+--Testcase 60:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT sum(c1) FROM tbl06 WHERE id < 4') as t(result double precision);
+  result  
+----------
+ 2475.558
+(1 row)
+
+--Testcase 61:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT max(c1) FROM tbl06 WHERE id < 4') as t(result double precision);
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=8)
+   Output: result
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT max(c1) FROM tbl06 WHERE id < 4'::text)
+(3 rows)
+
+--Testcase 62:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT max(c1) FROM tbl06 WHERE id < 4') as t(result double precision);
+ result  
+---------
+ 2565.56
+(1 row)
+
+--Testcase 63:
+EXPLAIN VERBOSE
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1), sum(c1), max(c1) FROM tbl06 WHERE id < 4') as t(avg_result double precision, sum_result double precision, max_result double precision);
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Function Scan on public.jdbc_exec t  (cost=0.00..10.00 rows=1000 width=24)
+   Output: avg_result, sum_result, max_result
+   Function Call: jdbc_exec('mysql_server'::text, 'SELECT avg(c1), sum(c1), max(c1) FROM tbl06 WHERE id < 4'::text)
+(3 rows)
+
+--Testcase 64:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT avg(c1), sum(c1), max(c1) FROM tbl06 WHERE id < 4') as t(avg_result double precision, sum_result double precision, max_result double precision);
+ avg_result | sum_result | max_result 
+------------+------------+------------
+    825.186 |   2475.558 |    2565.56
+(1 row)
+
+-- ===================================================================
+-- Exception cases
+-- ===================================================================
+-- There are not enough argument
+--Testcase 65:
+SELECT jdbc_exec('SELECT * FROM tbl06'); -- failed
+psql:sql/13.8/exec_function.sql:256: ERROR:  function jdbc_exec(unknown) does not exist
+LINE 1: SELECT jdbc_exec('SELECT * FROM tbl06');
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+-- Server is invalid
+--Testcase 66:
+SELECT jdbc_exec('', 'SELECT * FROM tbl06'); -- failed
+psql:sql/13.8/exec_function.sql:260: ERROR:  server "" does not exist
+-- Wrong sql query
+--Testcase 67:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'wrong sql query'); -- failed, error syntax in remote server
+psql:sql/13.8/exec_function.sql:264: ERROR:  remote server returned an error
+--Testcase 87:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'SELECT non_existed_column FROM tbl06'); -- failed, error syntax in remote server
+psql:sql/13.8/exec_function.sql:267: ERROR:  remote server returned an error
+--Testcase 88:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2, c3 FROM tbl06') as t(id int, c1 double precision); -- failed, less column than actual result
+psql:sql/13.8/exec_function.sql:270: ERROR:  function return row and query-specified return row do not match
+DETAIL:  Returned row contains 4 attributes, but query expects 2.
+--Testcase 89:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id FROM tbl06') as t(id int, c1 double precision); -- failed, more column than actual result
+psql:sql/13.8/exec_function.sql:273: ERROR:  function return row and query-specified return row do not match
+DETAIL:  Returned row contains 1 attribute, but query expects 2.
+--Testcase 90:
+SELECT * FROM jdbc_exec(:DB_EXEC_PARAM, 'SELECT id, c1, c2 FROM tbl06') as t(id int, c1 double precision, c2 text); -- failed, wrong data type
+psql:sql/13.8/exec_function.sql:276: ERROR:  function return row and query-specified return row do not match
+DETAIL:  Returned type bigint at ordinal position 3, but query expects text.
+--Testcase 68:
+SELECT jdbc_exec(:DB_EXEC_PARAM, 'DELETE FROM tbl06'); -- failed, DELETE sql query does not produce result sets
+psql:sql/13.8/exec_function.sql:279: ERROR:  remote server returned an error
+-- Clean-up
+--Testcase 69:
+DROP SERVER :DB_SERVERNAME CASCADE;
+psql:sql/13.8/exec_function.sql:283: NOTICE:  drop cascades to user mapping for public on server mysql_server
+--Testcase 70:
+DROP EXTENSION :DB_EXTENSIONNAME CASCADE;
