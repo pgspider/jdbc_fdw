@@ -1,0 +1,45 @@
+{
+   "name": "jdbc_fdw",
+   "abstract": "JDBC Foreign Data Wrapper",
+   "description": "PostgreSQL extension which implements a Foreign Data Wrapper (FDW) for JDBC database connections.",
+   "version": "0.1.0",
+   "maintainer": "pgspider",
+   "license": "postgresql",
+   "provides": {
+      "jdbc_fdw": {
+         "abstract": "JDBC Foreign Data Wrapper",
+         "file": "jdbc_fdw.c",
+         "docfile": "README.md",
+         "version": "0.1.0"
+      }
+   },
+   "prereqs": {
+      "runtime": {
+         "requires": {
+            "PostgreSQL": "13.0.0"
+         }
+      }
+   },
+   "resources": {
+      "bugtracker": {
+         "web": "https://github.com/pgspider/jdbc_fdw/issues"
+      },
+      "repository": {
+        "url":  "git://github.com/pgspider/jdbc_fdw.git",
+        "web":  "https://github.com/pgspider/jdbc_fdw",
+        "type": "git"
+      }
+   },
+   "generated_by": "David E. Wheeler",
+   "meta-spec": {
+      "version": "1.0.0",
+      "url": "http://pgxn.org/meta/spec.txt"
+   },
+   "tags": [
+      "jdbc",
+      "java",
+      "fdw",
+      "foreign data wrapper",
+      "jdbc_fdw"
+   ]
+}
