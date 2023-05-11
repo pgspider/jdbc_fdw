@@ -205,9 +205,9 @@ Rules and problems **yet not tested and described**.
 Generated columns
 -----------------
 
-Behavoiur within generated columns **yet not tested and described**. 
+Behaviour within generated columns **yet not tested and described**. 
 
-`jdbc_fdw` ptentially can provide support for PostgreSQL's generated
+`jdbc_fdw` potentially can provide support for PostgreSQL's generated
 columns (PostgreSQL 12+).
 
 Note that while `jdbc_fdw` will insert or update the generated column value
