@@ -6,6 +6,8 @@ to any Java DataBase Connectivity (JDBC) data source.
 
 This `jdbc_fdw` is based on [JDBC\_FDW](http://github.com/atris/JDBC_FDW.git) and [jdbc2\_fdw](https://github.com/heimir-sverrisson/jdbc2_fdw).
 
+<img src="https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg" align="center" height="100" alt="PostgreSQL"/>	+	<img src="https://1000logos.net/wp-content/uploads/2020/09/Java-Logo-500x313.png" align="center" height="100" alt="JDBC"/>
+
 
 Contents
 --------
@@ -31,6 +33,32 @@ Features
 #### Write-able FDW
 The existing JDBC FDWs are only read-only, this version provides the write capability.
 The user can now issue an insert, update, and delete statement for the foreign tables using the jdbc_fdw.
+
+#### Arbitrary SQL query execution via function
+Support execute the whole sql query and get results from the DB behind jdbc connection. This function returns a set of records.
+
+Syntax:
+```
+jdbc_exec(text connname, text sql);
+```
+
+Example:  
+To get a set of record, use the below sql query:
+```
+SELECT jdbc_exec(jdbc_svr, 'SELECT * FROM tbl');
+              jdbc_exec                 
+----------------------------------------
+ (1,abc,"Fri Dec 31 16:00:00 1999 PST")
+ (2,def,"Fri Dec 31 16:00:00 1999 PST")
+ ```
+To get a set of record with separate data for each column, use the below sql query:
+```
+SELECT * FROM jdbc_exec(jdbc_svr, 'SELECT * FROM tbl') as t(id int, c1 text, c2 timestamptz);
+ id |  c1 |              c2              
+----+-----+------------------------------
+  1 | abc | Fri Dec 31 16:00:00 1999 PST
+  2 | def | Fri Dec 31 16:00:00 1999 PST
+```
 
 ### Pushdowning
 
