@@ -730,6 +730,110 @@ jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int re
 	return (tupleSlot);
 }
 
+/*
+ * jq_iterate_all_row: Read the all row from the remote server without an existing foreign table
+ */
+void
+jq_iterate_all_row(FunctionCallInfo fcinfo, Jconn * conn, TupleDesc tupleDescriptor, int resultSetID)
+{
+	ReturnSetInfo	   *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+
+	jobject				JDBCUtilsObject;
+	jclass				JDBCUtilsClass;
+
+	jmethodID			idResultSet;
+	jmethodID			idNumberOfColumns;
+	jobjectArray		rowArray;
+
+	Tuplestorestate	   *tupstore;
+	HeapTuple			tuple;
+
+	MemoryContext		oldcontext;
+
+	Datum			   *values;
+	bool			   *nulls;
+
+	int					numberOfColumns;
+
+	ereport(DEBUG3, (errmsg("In jq_iterate_all_row")));
+
+	oldcontext = MemoryContextSwitchTo(rsinfo->econtext->ecxt_per_query_memory);
+	tupstore = tuplestore_begin_heap(true, false, work_mem);
+
+	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jdbc_sig_int_interrupt_check_process();
+
+	idNumberOfColumns = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getNumberOfColumns", "(I)I");
+	if (idNumberOfColumns == NULL)
+	{
+		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.getNumberOfColumns method")));
+	}
+	jq_exception_clear();
+	numberOfColumns = (int) (*Jenv)->CallIntMethod(Jenv, conn->JDBCUtilsObject, idNumberOfColumns, resultSetID);
+	jq_get_exception();
+	if (numberOfColumns < 0)
+	{
+		ereport(ERROR, (errmsg("getNumberOfColumns got wrong value: %d", numberOfColumns)));
+	}
+
+	if ((*Jenv)->PushLocalFrame(Jenv, (numberOfColumns + 10)) < 0)
+	{
+		ereport(ERROR, (errmsg("Error pushing local java frame")));
+	}
+
+	idResultSet = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getResultSet", "(I)[Ljava/lang/Object;");
+	if (idResultSet == NULL)
+	{
+		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.getResultSet method!")));
+	}
+
+	do
+	{
+		/* Allocate pointers to the row data */
+		jq_exception_clear();
+		rowArray = (*Jenv)->CallObjectMethod(Jenv, JDBCUtilsObject, idResultSet, resultSetID);
+		jq_get_exception();
+
+		if (rowArray != NULL)
+		{
+			values = (Datum *) palloc0(tupleDescriptor->natts * sizeof(Datum));
+			nulls = (bool *) palloc(tupleDescriptor->natts * sizeof(bool));
+			/* Initialize to nulls for any columns not present in result */
+			memset(nulls, true, tupleDescriptor->natts * sizeof(bool));
+
+			for (int i = 0; i < numberOfColumns; i++)
+			{
+				int			column_index = i;
+				Oid			pgtype = TupleDescAttr(tupleDescriptor, column_index)->atttypid;
+				int32		pgtypmod = TupleDescAttr(tupleDescriptor, column_index)->atttypmod;
+				jobject		obj = (jobject) (*Jenv)->GetObjectArrayElement(Jenv, rowArray, i);
+
+				if (obj != NULL)
+				{
+					values[column_index] = jdbc_convert_object_to_datum(pgtype, pgtypmod, obj);
+					nulls[column_index] = false;
+				}
+			}
+
+			tuple = heap_form_tuple(tupleDescriptor, values, nulls);
+			tuplestore_puttuple(tupstore, tuple);
+
+			(*Jenv)->DeleteLocalRef(Jenv, rowArray);
+		}
+	}
+	while (rowArray != NULL);
+
+	if (tuple != NULL)
+	{
+		rsinfo->setResult = tupstore;
+		rsinfo->setDesc = tupleDescriptor;
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	(*Jenv)->PopLocalFrame(Jenv, NULL);
+}
+
+
 
 Jresult *
 jq_exec_prepared(Jconn * conn, const int *paramLengths,
@@ -1457,6 +1561,126 @@ jq_get_column_infos(Jconn * conn, char *tablename)
 	return columnInfoList;
 }
 
+/*
+ * jq_get_column_infos_without_key
+ *
+ * This function is clone from jq_get_column_infos
+ * to get column names and data types.
+ * Primary key is set to false because it is not necessary.
+ *
+ */
+List *
+jq_get_column_infos_without_key(Jconn * conn, int *resultSetID, int *column_num)
+{
+	jobject		JDBCUtilsObject;
+	jclass		JDBCUtilsClass;
+	int			i;
+
+	/* getColumnNames */
+	jmethodID	idGetColumnNamesByResultSetID;
+	jobjectArray columnNamesArray;
+	jsize		numberOfNames;
+
+	/* getColumnTypes */
+	jmethodID	idGetColumnTypesByResultSetID;
+	jobjectArray columnTypesArray;
+	jsize		numberOfTypes;
+
+	/* getColumnNumber */
+	jmethodID	idNumberOfColumns;
+	jint		jresultSetID = *resultSetID;
+	int			numberOfColumns;
+
+	/* for generating columnInfo List */
+	List	   *columnInfoList = NIL;
+	JcolumnInfo *columnInfo;
+
+	/* Get JDBCUtils */
+	PG_TRY();
+	{
+		jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	}
+	PG_CATCH();
+	{
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	jdbc_sig_int_interrupt_check_process();
+
+	/* getColumnNames by resultSetID */
+	idGetColumnNamesByResultSetID = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getColumnNamesByResultSetID", "(I)[Ljava/lang/String;");
+	if (idGetColumnNamesByResultSetID == NULL)
+	{
+		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.getColumnNamesByResultSetID method")));
+	}
+	jq_exception_clear();
+	columnNamesArray = (*Jenv)->CallObjectMethod(Jenv, JDBCUtilsObject, idGetColumnNamesByResultSetID, jresultSetID);
+	jq_get_exception();
+
+	/* getColumnTypes by resultSetID */
+	idGetColumnTypesByResultSetID = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getColumnTypesByResultSetID", "(I)[Ljava/lang/String;");
+	if (idGetColumnTypesByResultSetID == NULL)
+	{
+		if (columnNamesArray != NULL)
+		{
+			(*Jenv)->DeleteLocalRef(Jenv, columnNamesArray);
+		}
+		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.getColumnTypesByResultSetID method")));
+	}
+	jq_exception_clear();
+	columnTypesArray = (*Jenv)->CallObjectMethod(Jenv, JDBCUtilsObject, idGetColumnTypesByResultSetID, jresultSetID);
+	jq_get_exception();
+
+	/* getNumberOfColumns */
+	idNumberOfColumns = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getNumberOfColumns", "(I)I");
+	if (idNumberOfColumns == NULL)
+	{
+		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.getNumberOfColumns method")));
+	}
+	jq_exception_clear();
+	numberOfColumns = (int) (*Jenv)->CallIntMethod(Jenv, JDBCUtilsObject, idNumberOfColumns, jresultSetID);
+	*column_num = numberOfColumns;
+	jq_get_exception();
+
+	if (columnNamesArray != NULL && columnTypesArray != NULL)
+	{
+		numberOfNames = (*Jenv)->GetArrayLength(Jenv, columnNamesArray);
+		numberOfTypes = (*Jenv)->GetArrayLength(Jenv, columnTypesArray);
+
+		if (numberOfNames != numberOfTypes)
+		{
+			(*Jenv)->DeleteLocalRef(Jenv, columnTypesArray);
+			(*Jenv)->DeleteLocalRef(Jenv, columnNamesArray);
+			ereport(ERROR, (errmsg("Cannot get the dependable columnInfo.")));
+		}
+
+		for (i = 0; i < numberOfNames; i++)
+		{
+			/* init columnInfo */
+			char	   *tmpColumnNames = jdbc_convert_string_to_cstring((jobject) (*Jenv)->GetObjectArrayElement(Jenv, columnNamesArray, i));
+			char	   *tmpColumnTypes = jdbc_convert_string_to_cstring((jobject) (*Jenv)->GetObjectArrayElement(Jenv, columnTypesArray, i));
+
+			columnInfo = (JcolumnInfo *) palloc0(sizeof(JcolumnInfo));
+			columnInfo->column_name = tmpColumnNames;
+			columnInfo->column_type = tmpColumnTypes;
+			columnInfo->primary_key = false;
+
+			columnInfoList = lappend(columnInfoList, columnInfo);
+		}
+	}
+
+	if (columnNamesArray != NULL)
+	{
+		(*Jenv)->DeleteLocalRef(Jenv, columnNamesArray);
+	}
+	if (columnTypesArray != NULL)
+	{
+		(*Jenv)->DeleteLocalRef(Jenv, columnTypesArray);
+	}
+
+	return columnInfoList;
+}
 
 /*
  * jq_get_table_names

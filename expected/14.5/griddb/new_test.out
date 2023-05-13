@@ -726,14 +726,14 @@ SELECT sum(c1::float8) FROM test_explicit_cast; -- Does not push down
 SELECT * FROM public.jdbc_fdw_version();
  jdbc_fdw_version 
 ------------------
-              300
+              301
 (1 row)
 
 --Testcase 95:
 SELECT jdbc_fdw_version();
  jdbc_fdw_version 
 ------------------
-              300
+              301
 (1 row)
 
 --Testcase 70:

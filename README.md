@@ -181,8 +181,8 @@ command:
 
 - **password**
 
-  The JDBC user's password.
 
+  The JDBC user's password.
 
 ## CREATE FOREIGN TABLE options
 
@@ -197,7 +197,6 @@ The following column-level options are available:
 ```
 CREATE FOREIGN TABLE [table name]([column name] [column type] OPTIONS(key 'true')) SERVER [server name];
 ```
-
 Note that while PostgreSQL allows a foreign table to be defined without
 any columns, `jdbc_fdw` *can* raise an error as soon as any operations
 are carried out on it.

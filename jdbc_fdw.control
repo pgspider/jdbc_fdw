@@ -1,5 +1,5 @@
 # jdbc_fdw extension
 comment = 'foreign-data wrapper for remote servers available over JDBC'
-default_version = '1.1'
+default_version = '1.2'
 module_pathname = '$libdir/jdbc_fdw'
 relocatable = true

@@ -74,6 +74,8 @@ extern int	jq_server_version(const Jconn * conn);
 extern char *jq_result_error_field(const Jresult * res, int fieldcode);
 extern PGTransactionStatusType jq_transaction_status(const Jconn * conn);
 extern TupleTableSlot * jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int resultSetID);
+extern void jq_iterate_all_row(FunctionCallInfo fcinfo, Jconn * conn, TupleDesc tupleDescriptor, int resultSetID);
+extern List * jq_get_column_infos_without_key(Jconn * conn, int *resultSetID, int *column_num);
 extern void *jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, int resultSetID);
 extern Datum jdbc_convert_to_pg(Oid pgtyp, int pgtypmod, char *value);
 extern List * jq_get_schema_info(Jconn * conn);
