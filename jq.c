@@ -37,6 +37,8 @@
 /* POSTGRES_TO_UNIX_EPOCH_DAYS to microseconds */
 #define POSTGRES_TO_UNIX_EPOCH_USECS 		(POSTGRES_TO_UNIX_EPOCH_DAYS * USECS_PER_DAY)
 
+#define JNI_VERSION JNI_VERSION_1_2
+
 /*
  * Local housekeeping functions and Java objects
  */
@@ -105,6 +107,20 @@ static void jdbc_attach_jvm();
  */
 static void jdbc_detach_jvm();
 
+/*
+ * Get JNIEnv from JavaVM
+ */
+static void jdbc_get_jni_env(void);
+
+/*
+ * Add classpath to system class loader using reflection
+ */
+static void jdbc_add_classpath_to_system_class_loader(char *classpath);
+
+/*
+ * Get the maximum heap size for JVM by calling Runtime.getRuntime().maxMemory()
+ */
+static long jdbc_get_max_heap_size();
 /*
  * SIGINT interrupt check and process function
  */
@@ -277,6 +293,135 @@ jdbc_detach_jvm()
 	(*jvm)->DetachCurrentThread(jvm);
 }
 
+static void jdbc_get_jni_env(void)
+{
+	int JVMEnvStat;
+
+	ereport(DEBUG3, (errmsg("In jdbc_get_jni_env")));
+
+	JVMEnvStat = (*jvm)->GetEnv(jvm, (void **) &Jenv, JNI_VERSION);
+	if (JVMEnvStat == JNI_EDETACHED)
+	{
+		ereport(DEBUG3, (errmsg("JVMEnvStat: JNI_EDETACHED; the current thread is not attached to the VM")));
+		jdbc_attach_jvm();
+	}
+	else if (JVMEnvStat == JNI_OK)
+	{
+		ereport(DEBUG3, (errmsg("JVMEnvStat: JNI_OK")));
+	}
+	else if (JVMEnvStat == JNI_EVERSION)
+	{
+		ereport(ERROR, (errmsg("JVMEnvStat: JNI_EVERSION; the specified version is not supported")));
+	}
+}
+
+static void jdbc_add_classpath_to_system_class_loader(char *classpath)
+{
+	int url_classpath_len;
+	char *url_classpath;
+	jclass ClassLoader_class;
+	jmethodID ClassLoader_getSystemClassLoader;
+	jobject system_class_loader;
+	jclass URLClassLoader_class;
+	jmethodID URLClassLoader_addURL;
+	jclass URL_class;
+	jmethodID URL_constructor;
+	jobject url;
+
+	ereport(DEBUG3, errmsg("In jdbc_add_classpath_to_system_class_loader"));
+
+	url_classpath_len = 5 + strlen(classpath) + 2; /* "file:" + classpath + '/\0' */
+	url_classpath = (char *)palloc0(url_classpath_len);
+	snprintf(url_classpath, url_classpath_len, "file:%s/", classpath);
+
+
+	ClassLoader_class = (*Jenv)->FindClass(Jenv, "java/lang/ClassLoader");
+	if (ClassLoader_class == NULL) {
+		ereport(ERROR, errmsg("java/lang/ClassLoader is not found"));
+	}
+
+	ClassLoader_getSystemClassLoader = (*Jenv)->GetStaticMethodID(Jenv, ClassLoader_class,
+															   "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
+	if (ClassLoader_getSystemClassLoader == NULL) {
+		ereport(ERROR, errmsg("ClassLoader.getSystemClassLoader is not found"));
+	}
+
+	URLClassLoader_class = (*Jenv)->FindClass(Jenv, "java/net/URLClassLoader");
+	if (URLClassLoader_class == NULL) {
+		ereport(ERROR, errmsg("java/net/URLClassLoader is not found"));
+	}
+
+	URLClassLoader_addURL = (*Jenv)->GetMethodID(Jenv, URLClassLoader_class,
+											  "addURL", "(Ljava/net/URL;)V");
+	if (URLClassLoader_addURL == NULL) {
+		ereport(ERROR, errmsg("URLClassLoader.addURL is not found"));
+	}
+
+	URL_class = (*Jenv)->FindClass(Jenv, "java/net/URL");
+	if (URL_class == NULL) {
+		ereport(ERROR, errmsg("java/net/URL is not found"));
+	}
+
+	URL_constructor = (*Jenv)->GetMethodID(Jenv, URL_class,
+										"<init>", "(Ljava/lang/String;)V");
+	if (URL_constructor == NULL) {
+		ereport(ERROR, errmsg("URL.<init> is not found"));
+	}
+
+	jq_exception_clear();
+	system_class_loader = (*Jenv)->CallStaticObjectMethod(
+		Jenv, ClassLoader_class, ClassLoader_getSystemClassLoader);
+	jq_get_exception();
+
+	jq_exception_clear();
+	url = (*Jenv)->NewObject(Jenv, URL_class, URL_constructor, (*Jenv)->NewStringUTF(Jenv, url_classpath));
+	jq_get_exception();
+
+	jq_exception_clear();
+	(*Jenv)->CallVoidMethod(Jenv, system_class_loader, URLClassLoader_addURL, url);
+	jq_get_exception();
+
+	ereport(DEBUG3, errmsg("Add classpath to System Class Loader: %s", url_classpath));
+}
+
+static long jdbc_get_max_heap_size()
+{
+	jclass Runtime_class;
+	jmethodID Runtime_getRuntime;
+	jobject runtime;
+	jmethodID Runtime_maxMemory;
+	jlong max_memory;
+
+	ereport(DEBUG3, errmsg("entering function %s", __func__));
+
+	Runtime_class = (*Jenv)->FindClass(Jenv, "java/lang/Runtime");
+	if (Runtime_class == NULL) {
+		ereport(ERROR, errmsg("java/lang/Runtime is not found"));
+	}
+
+	Runtime_getRuntime = (*Jenv)->GetStaticMethodID(Jenv, Runtime_class, 
+												 "getRuntime", "()Ljava/lang/Runtime;");
+	if (Runtime_getRuntime  == NULL) {
+		ereport(ERROR, errmsg("Runtime.getRuntime is not found"));
+	}
+
+	Runtime_maxMemory = (*Jenv)->GetMethodID(Jenv, Runtime_class, "maxMemory", "()J");
+	if (Runtime_maxMemory  == NULL) {
+		ereport(ERROR, errmsg("Runtime.maxMemory is not found"));
+	}
+
+	jq_exception_clear();
+	runtime = (*Jenv)->CallStaticObjectMethod(Jenv, Runtime_class,
+						 Runtime_getRuntime);
+	jq_get_exception();
+
+	jq_exception_clear();
+	max_memory = (*Jenv)->CallLongMethod(Jenv, runtime, Runtime_maxMemory);
+	jq_get_exception();
+
+	return max_memory;
+}
+
 /*
  * jdbc_jvm_init Create the JVM which will be used for calling the Java
  * routines that use JDBC to connect and access the foreign database.
@@ -293,9 +438,8 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
 								 * whether JVM has been correctly created or
 								 * not */
 	JavaVMInitArgs vm_args;
-	JavaVMOption *options;
+	JavaVMOption *options = NULL;
 	char		strpkglibdir[] = STR_PKGLIBDIR;
-	char	   *classpath;
 	char	   *maxheapsizeoption = NULL;
 
 	opts.maxheapsize = 0;
@@ -308,38 +452,44 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
 
 	if (FunctionCallCheck == false)
 	{
-		classpath = (char *) palloc0(strlen(strpkglibdir) + 19);
-		snprintf(classpath, strlen(strpkglibdir) + 19, "-Djava.class.path=%s", strpkglibdir);
-
 		if (opts.maxheapsize != 0)
 		{						/* If the user has given a value for setting
 								 * the max heap size of the JVM */
-			options = (JavaVMOption *) palloc0(sizeof(JavaVMOption) * 2);
+			options = (JavaVMOption *) palloc0(sizeof(JavaVMOption));
 			maxheapsizeoption = (char *) palloc0(sizeof(int) + 6);
 			snprintf(maxheapsizeoption, sizeof(int) + 6, "-Xmx%dm", opts.maxheapsize);
-			options[0].optionString = classpath;
-			options[1].optionString = maxheapsizeoption;
-			vm_args.nOptions = 2;
+			options[0].optionString = maxheapsizeoption;
+			vm_args.nOptions = 1;
 		}
 		else
 		{
-			options = (JavaVMOption *) palloc0(sizeof(JavaVMOption));
-			options[0].optionString = classpath;
-			vm_args.nOptions = 1;
+			vm_args.nOptions = 0;
 		}
-		vm_args.version = JNI_VERSION_1_2;
+		vm_args.version = JNI_VERSION;
 		vm_args.options = options;
 		vm_args.ignoreUnrecognized = JNI_FALSE;
 
 		/* Create the Java VM */
 		res = JNI_CreateJavaVM(&jvm, (void **) &Jenv, &vm_args);
-		if (res < 0)
-		{
-			ereport(ERROR,
-					(errmsg("Failed to create Java VM")
-					 ));
+		if (res == JNI_EEXIST) {
+			res = JNI_GetCreatedJavaVMs(&jvm, 1, NULL);
+			if (res < 0) {
+				ereport(ERROR, errmsg("Failed to get created Java VM"));
+			}
+			jdbc_get_jni_env();
+			jdbc_add_classpath_to_system_class_loader(strpkglibdir);
+			ereport(INFO, errmsg("Java VM has already been created by another extension. "
+						"The existing Java VM will be re-used. "
+						"The max heapsize may be different from the setting value. "
+						"The current max heapsize is %ld bytes", jdbc_get_max_heap_size()));
 		}
-		ereport(DEBUG3, (errmsg("Successfully created a JVM with %d MB heapsize", opts.maxheapsize)));
+		else if (res < 0)
+		{
+			ereport(ERROR, (errmsg("Failed to create Java VM")));
+		} else {
+			ereport(DEBUG3, (errmsg("Successfully created a JVM with %d MB heapsize", opts.maxheapsize)));
+			jdbc_add_classpath_to_system_class_loader(strpkglibdir);
+		}
 		InterruptFlag = false;
 		/* Register an on_proc_exit handler that shuts down the JVM. */
 		on_proc_exit(jdbc_destroy_jvm, 0);
@@ -347,23 +497,7 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
 	}
 	else
 	{
-		int			JVMEnvStat;
-
-		vm_args.version = JNI_VERSION_1_2;
-		JVMEnvStat = (*jvm)->GetEnv(jvm, (void **) &Jenv, vm_args.version);
-		if (JVMEnvStat == JNI_EDETACHED)
-		{
-			ereport(DEBUG3, (errmsg("JVMEnvStat: JNI_EDETACHED; the current thread is not attached to the VM")));
-			jdbc_attach_jvm();
-		}
-		else if (JVMEnvStat == JNI_OK)
-		{
-			ereport(DEBUG3, (errmsg("JVMEnvStat: JNI_OK")));
-		}
-		else if (JVMEnvStat == JNI_EVERSION)
-		{
-			ereport(ERROR, (errmsg("JVMEnvStat: JNI_EVERSION; the specified version is not supported")));
-		}
+		jdbc_get_jni_env();
 	}
 }
 
