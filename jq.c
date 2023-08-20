@@ -316,15 +316,11 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
 	if (FunctionCallCheck == false)
 	{
 		const char* env_classpath = getenv("CLASSPATH");
-		int classpath_length = strlen(strpkglibdir) + 19;
 
 		if (env_classpath != NULL) {
-			classpath_length += 1 + strlen(env_classpath);
-			classpath = (char *) palloc0(classpath_length);
-			snprintf(classpath, classpath_length, "-Djava.class.path=%s" PATH_SEPARATOR "%s", strpkglibdir, env_classpath);
+			classpath = psprintf("-Djava.class.path=%s" PATH_SEPARATOR "%s", strpkglibdir, env_classpath);
 		} else {
-			classpath = (char *) palloc0(classpath_length);
-			snprintf(classpath, classpath_length, "-Djava.class.path=%s", strpkglibdir);
+			classpath = psprintf("-Djava.class.path=%s", strpkglibdir);
 		}
 
 
