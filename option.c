@@ -22,6 +22,9 @@
 #include "catalog/pg_user_mapping.h"
 #include "commands/defrem.h"
 #include "utils/guc.h"
+#if PG_VERSION_NUM >= 160000
+#include "utils/varlena.h"
+#endif
 
 
 /*
@@ -80,6 +83,7 @@ jdbc_fdw_validator(PG_FUNCTION_ARGS)
 
 		if (!jdbc_is_valid_option(def->defname, catalog))
 		{
+#if PG_VERSION_NUM < 160000
 			/*
 			 * Unknown option specified, complain about it. Provide a hint
 			 * with list of valid options for the object.
@@ -101,6 +105,35 @@ jdbc_fdw_validator(PG_FUNCTION_ARGS)
 					 buf.len > 0 ?
 					 errhint("Valid options in this context are: %s", buf.data) :
 					 errhint("There are no valid options in this context.")));
+#else
+			/*
+			 * Unknown option specified, complain about it. Provide a hint
+			 * with a valid option that looks similar, if there is one.
+			 */
+			JdbcFdwOption *opt;
+			const char *closest_match;
+			ClosestMatchState match_state;
+			bool		has_valid_options = false;
+
+			initClosestMatch(&match_state, def->defname, 4);
+			for (opt = jdbc_fdw_options; opt->keyword; opt++)
+			{
+				if (catalog == opt->optcontext)
+				{
+					has_valid_options = true;
+					updateClosestMatch(&match_state, opt->keyword);
+				}
+			}
+
+			closest_match = getClosestMatch(&match_state);
+			ereport(ERROR,
+					(errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+					 errmsg("invalid option \"%s\"", def->defname),
+					 has_valid_options ? closest_match ?
+					 errhint("Perhaps you meant the option \"%s\".",
+							 closest_match) : 0 :
+					 errhint("There are no valid options in this context.")));
+#endif
 		}
 
 		/*

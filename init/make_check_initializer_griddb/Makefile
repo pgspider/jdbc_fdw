@@ -1,10 +1,10 @@
 CC=gcc
-IDIR =../griddb/client/c/include
+IDIR =${HOME}/workplace/griddb/client/c/include
 CFLAGS=-I$(IDIR)
 
 ODIR =./obj
 
-LDIR =../griddb/bin
+LDIR =${HOME}/workplace/griddb/bin
 LDLIBS=-lgridstore
 LDFLAGS=-L$(LDIR) $(LDLIBS)
 

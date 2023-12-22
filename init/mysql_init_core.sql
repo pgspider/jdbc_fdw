@@ -4,11 +4,13 @@ DROP TABLE IF EXISTS onek2;
 DROP TABLE IF EXISTS aggtest;
 DROP TABLE IF EXISTS tenk1;
 DROP TABLE IF EXISTS multi_arg_agg;
+DROP TABLE IF EXISTS pagg_test;
 DROP TABLE IF EXISTS int4_tbl;
 DROP TABLE IF EXISTS int4_tmp;
 DROP TABLE IF EXISTS int8_tbl;
 DROP TABLE IF EXISTS float8_tbl;
 DROP TABLE IF EXISTS float8_tmp;
+DROP TABLE IF EXISTS float8_tmp_value;
 DROP TABLE IF EXISTS float4_tbl;
 DROP TABLE IF EXISTS int4_tbl_temp;
 DROP TABLE IF EXISTS int8_tbl_temp;
@@ -47,6 +49,8 @@ DROP TABLE IF EXISTS delete_test;
 DROP TABLE IF EXISTS inserttest;
 DROP TABLE IF EXISTS tenk;
 DROP TABLE IF EXISTS btg;
+DROP TABLE IF EXISTS v;
+DROP TABLE IF EXISTS text_tmp;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -112,13 +116,17 @@ CREATE TABLE tenk1 (
 	string4		varchar(64)
 );
 
+CREATE TABLE v(id int PRIMARY KEY, v int4);
 CREATE TABLE multi_arg_agg (a int4 PRIMARY KEY, b int, c text);
+CREATE TABLE pagg_test (id serial PRIMARY KEY, x int, y int);
 CREATE TABLE int4_tbl(id int4 PRIMARY KEY, f1 int4);
 CREATE TABLE int4_tmp(id SERIAL PRIMARY KEY , a int4, b int4);
 CREATE TABLE int8_tbl(id SERIAL PRIMARY KEY, q1 int8, q2 int8);
 CREATE TABLE float8_tbl (id SERIAL PRIMARY KEY, f1 double);
 CREATE TABLE float8_tmp (id SERIAL PRIMARY KEY, f1 double, f2 double);
+CREATE TABLE float8_tmp_value (id SERIAL PRIMARY KEY, f1 float8);
 CREATE TABLE float4_tbl (id SERIAL PRIMARY KEY, f1 float);
+CREATE TABLE text_tmp(id SERIAL PRIMARY KEY , c1 text);
 
 CREATE TABLE int4_tbl_temp(id int4 PRIMARY KEY, f1 int4);
 CREATE TABLE int8_tbl_temp(id SERIAL PRIMARY KEY, q1 int8, q2 int8);

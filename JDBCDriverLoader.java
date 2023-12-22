@@ -14,11 +14,10 @@
  *-------------------------------------------------------------------------
  */
 
-import java.io.*;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.MalformedURLException;
- 
+
 public class JDBCDriverLoader extends URLClassLoader
 {
 
@@ -46,7 +45,7 @@ public class JDBCDriverLoader extends URLClassLoader
  * CheckIfClassIsLoaded
  *		Checks if a class of given classname has been loaded by the loader or not.
  */
-	public Class
+	public Class<?>
 	CheckIfClassIsLoaded(String ClassName)
 	{
 		return findLoadedClass(ClassName);

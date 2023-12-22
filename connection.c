@@ -22,66 +22,49 @@
 #include "access/xact.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
+#include "pthread.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
 #include "utils/elog.h"
+#include "utils/inval.h"
 #include "utils/syscache.h"
 
 
 /*
- * Connection cache hash table entry
+ * JdbcUtils cache hash table entry
  *
- * The lookup key in this hash table is the foreign server OID plus the user
- * mapping OID.  (We use just one connection per user per foreign server, so
- * that we can ensure all scans use the same snapshot during a query.)
+ * The jdbc connection will handled by JdbcUtils class.
  *
- * The "conn" pointer can be NULL if we don't currently have a live
- * connection. When we do have a connection, xact_depth tracks the current
- * depth of transactions and subtransactions open on the remote side.  We
- * need to issue commands at the same nesting depth on the remote as we're
- * executing at ourselves, so that rolling back a subtransaction will kill
- * the right queries and not the wrong ones.
+ * The "jdbcUtilsInfo" pointer keep information of JdbcUtils object to re-use.
  */
-typedef struct ConnCacheKey
+typedef struct JdbcUtilsCacheKey
 {
 	Oid			serverid;		/* OID of foreign server */
 	Oid			userid;			/* OID of local user whose mapping we use */
-} ConnCacheKey;
+} JdbcUtilsCacheKey;
 
-typedef struct ConnCacheEntry
+typedef struct JdbcUtilCacheEntry
 {
-	ConnCacheKey key;			/* hash key (must be first) */
-	Jconn	   *conn;			/* connection to foreign server, or NULL */
-	int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
-								 * one level of subxact open, etc */
-	bool		have_prep_stmt; /* have we prepared any stmts in this xact? */
-	bool		have_error;		/* have any subxacts aborted in this xact? */
-} ConnCacheEntry;
+	JdbcUtilsCacheKey key;			/* hash key (must be first) */
+	JDBCUtilsInfo *jdbcUtilsInfo;	/* connection to foreign server, or NULL */
+	uint32		server_hashvalue;	/* hash value of foreign server OID */
+	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
+} JdbcUtilCacheEntry;
 
 /*
- * Connection cache (initialized on first use)
+ * JdbcUtils cache: save JdbcUtils object created based on Jenv (a thread local variable)
+ * to re-use/release JDBCUtils object (not jdbc connection).
  */
-static HTAB *ConnectionHash = NULL;
-
-/* for assigning cursor numbers and prepared statement numbers */
-static volatile unsigned int cursor_number = 0;
-static unsigned int prep_stmt_number = 0;
+static __thread HTAB *JdbcUtilsHash = NULL;
 
 /* tracks whether any work is needed in callback functions */
-static volatile bool xact_got_connection = false;
+static __thread volatile bool xact_got_connection = false;
 
 /* prototypes of private functions */
-static Jconn * connect_jdbc_server(ForeignServer *server, UserMapping *user);
+static JDBCUtilsInfo * connect_jdbc_server(ForeignServer *server, UserMapping *user);
 static void jdbc_check_conn_params(const char **keywords, const char **values);
-static void jdbc_do_sql_command(Jconn * conn, const char *sql);
 static void jdbcfdw_xact_callback(XactEvent event, void *arg);
-static void jdbcfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
-static void jdbcfdw_subxact_callback(SubXactEvent event,
-									 SubTransactionId mySubid,
-									 SubTransactionId parentSubid,
-									 void *arg);
-static void jdbcfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel);
-
+static void jdbc_fdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue);
 
 /*
  * Get a Jconn which can be used to execute queries on the remote JDBC server
@@ -100,35 +83,45 @@ static void jdbcfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel);
  * would really be useful and not mere pedantry.  We could not flush any
  * active connections mid-transaction anyway.
  */
-Jconn *
-jdbc_get_connection(ForeignServer *server, UserMapping *user,
-					bool will_prep_stmt)
+JDBCUtilsInfo *
+jdbc_get_jdbc_utils_obj(ForeignServer *server, UserMapping *user,
+						bool will_prep_stmt)
 {
 	bool		found;
-	ConnCacheEntry *entry;
-	ConnCacheKey key;
+	JdbcUtilCacheEntry *entry;
+	JdbcUtilsCacheKey key;
+	static bool xact_callback_registered = false;
 
-	/* First time through, initialize connection cache hashtable */
-	if (ConnectionHash == NULL)
+	if (JdbcUtilsHash == NULL)
 	{
 		HASHCTL		ctl;
+		char *hash_tbl_name;
 
 		MemSet(&ctl, 0, sizeof(ctl));
-		ctl.keysize = sizeof(ConnCacheKey);
-		ctl.entrysize = sizeof(ConnCacheEntry);
+		ctl.keysize = sizeof(JdbcUtilsCacheKey);
+		ctl.entrysize = sizeof(JdbcUtilCacheEntry);
 		ctl.hash = tag_hash;
-		/* allocate ConnectionHash in the cache context */
+		/* allocate JdbcUtilsHash in the cache context */
 		ctl.hcxt = CacheMemoryContext;
-		ConnectionHash = hash_create("jdbc_fdw connections", 8,
+		hash_tbl_name = psprintf("jdbc_fdw connections %lu", pthread_self());
+		JdbcUtilsHash = hash_create(hash_tbl_name, 8,
 									 &ctl,
 									 HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+	}
 
+	/* First time through, initialize connection cache hashtable */
+	if (!xact_callback_registered)
+	{
 		/*
 		 * Register some callback functions that manage connection cleanup.
 		 * This should be done just once in each backend.
 		 */
 		RegisterXactCallback(jdbcfdw_xact_callback, NULL);
-		RegisterSubXactCallback(jdbcfdw_subxact_callback, NULL);
+		CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
+									  jdbc_fdw_inval_callback, (Datum) 0);
+		CacheRegisterSyscacheCallback(USERMAPPINGOID,
+									  jdbc_fdw_inval_callback, (Datum) 0);
+		xact_callback_registered = true;
 	}
 	ereport(DEBUG3, (errmsg("Added server = %s to hashtable", server->servername)));
 
@@ -142,53 +135,91 @@ jdbc_get_connection(ForeignServer *server, UserMapping *user,
 	/*
 	 * Find or create cached entry for requested connection.
 	 */
-	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
+	entry = hash_search(JdbcUtilsHash, &key, HASH_ENTER, &found);
 	if (!found)
 	{
 		/* initialize new hashtable entry (key is already filled in) */
-		entry->conn = NULL;
-		entry->xact_depth = 0;
-		entry->have_prep_stmt = false;
-		entry->have_error = false;
+		entry->jdbcUtilsInfo = NULL;
 	}
-
-	/*
-	 * We don't check the health of cached connection here, because it would
-	 * require some overhead.  Broken connection will be detected when the
-	 * connection is actually used.
-	 */
 
 	/*
 	 * If cache entry doesn't have a connection, we have to establish a new
 	 * connection.  (If connect_jdbc_server throws an error, the cache entry
 	 * will be left in a valid empty state.)
 	 */
-	if (entry->conn == NULL)
+	if (entry->jdbcUtilsInfo == NULL)
 	{
-		entry->xact_depth = 0;	/* just to be sure */
-		entry->have_prep_stmt = false;
-		entry->have_error = false;
-		entry->conn = connect_jdbc_server(server, user);
+		entry->server_hashvalue =
+			GetSysCacheHashValue1(FOREIGNSERVEROID,
+								  ObjectIdGetDatum(server->serverid));
+		entry->mapping_hashvalue =
+			GetSysCacheHashValue1(USERMAPPINGOID,
+								  ObjectIdGetDatum(user->umid));
+		entry->jdbcUtilsInfo = connect_jdbc_server(server, user);
 	}
 	else
 	{
 		jdbc_jvm_init(server, user);
 	}
 
-	/* Remember if caller will prepare statements */
-	entry->have_prep_stmt |= will_prep_stmt;
+	return entry->jdbcUtilsInfo;
+}
 
-	return entry->conn;
+/*
+ * Connection invalidation callback function
+ *
+ * After a change to a pg_foreign_server or pg_user_mapping catalog entry,
+ * mark connections depending on that entry as needing to be remade.
+ * We can't immediately destroy them, since they might be in the midst of
+ * a transaction, but we'll remake them at the next opportunity.
+ *
+ * Although most cache invalidation callbacks blow away all the related stuff
+ * regardless of the given hashvalue, connections are expensive enough that
+ * it's worth trying to avoid that.
+ *
+ * NB: We could avoid unnecessary disconnection more strictly by examining
+ * individual option values, but it seems too much effort for the gain.
+ */
+static void
+jdbc_fdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
+{
+	HASH_SEQ_STATUS scan;
+	JdbcUtilCacheEntry *entry;
+
+	Assert(cacheid == FOREIGNSERVEROID || cacheid == USERMAPPINGOID);
+
+	/* JdbcUtilsHash must exist already, if we're registered */
+	hash_seq_init(&scan, JdbcUtilsHash);
+	while ((entry = (JdbcUtilCacheEntry *) hash_seq_search(&scan)))
+	{
+		/* Ignore invalid entries */
+		if (entry->jdbcUtilsInfo == NULL)
+			continue;
+
+		/* hashvalue == 0 means a cache reset, must clear all state */
+		if (hashvalue == 0 ||
+			(cacheid == FOREIGNSERVEROID &&
+			 entry->server_hashvalue == hashvalue) ||
+			(cacheid == USERMAPPINGOID &&
+			 entry->mapping_hashvalue == hashvalue))
+		{
+			pfree(entry->jdbcUtilsInfo);
+			entry->jdbcUtilsInfo = NULL;
+		}
+	}
+
+	/* release JDBC connection on JDBCUtils object also */
+	jq_inval_callback(cacheid, hashvalue);
 }
 
 /*
  * Connect to remote server using specified server and user mapping
  * properties.
  */
-static Jconn *
+static JDBCUtilsInfo *
 connect_jdbc_server(ForeignServer *server, UserMapping *user)
 {
-	Jconn	   *volatile conn = NULL;
+	JDBCUtilsInfo *volatile jdbcUtilsInfo = NULL;
 
 	/*
 	 * Use PG_TRY block to ensure closing connection on error.
@@ -232,14 +263,14 @@ connect_jdbc_server(ForeignServer *server, UserMapping *user)
 		/* verify connection parameters and make connection */
 		jdbc_check_conn_params(keywords, values);
 
-		conn = jq_connect_db_params(server, user, keywords, values);
-		if (!conn || jq_status(conn) != CONNECTION_OK)
+		jdbcUtilsInfo = jq_connect_db_params(server, user, keywords, values);
+		if (!jdbcUtilsInfo || jq_status(jdbcUtilsInfo) != CONNECTION_OK)
 		{
 			char	   *connmessage;
 			int			msglen;
 
 			/* libpq typically appends a newline, strip that */
-			connmessage = pstrdup(jq_error_message(conn));
+			connmessage = pstrdup(jq_error_message(jdbcUtilsInfo));
 			msglen = strlen(connmessage);
 			if (msglen > 0 && connmessage[msglen - 1] == '\n')
 				connmessage[msglen - 1] = '\0';
@@ -250,31 +281,22 @@ connect_jdbc_server(ForeignServer *server, UserMapping *user)
 					 errdetail_internal("%s", connmessage)));
 		}
 
-		/*
-		 * Check that non-superuser has used password to establish connection;
-		 * otherwise, he's piggybacking on the JDBC server's user identity.
-		 * See also dblink_security_check() in contrib/dblink.
-		 */
-		if (!superuser() && !jq_connection_used_password(conn))
-			ereport(ERROR,
-					(errcode(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED),
-					 errmsg("password is required"),
-					 errdetail("Non-superuser cannot connect if the server does not request a password."),
-					 errhint("Target server's authentication method must be changed.")));
-
 		pfree(keywords);
 		pfree(values);
 	}
 	PG_CATCH();
 	{
 		/* Release Jconn data structure if we managed to create one */
-		if (conn)
-			jq_finish(conn);
+		if (jdbcUtilsInfo)
+		{
+			pfree(jdbcUtilsInfo);
+			jq_finish();
+		}
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
 
-	return conn;
+	return jdbcUtilsInfo;
 }
 
 /*
@@ -306,80 +328,52 @@ jdbc_check_conn_params(const char **keywords, const char **values)
 			 errdetail("Non-superusers must provide a password in the user mapping.")));
 }
 
-
 /*
- * Convenience subroutine to issue a non-data-returning SQL command to remote
- */
-static void
-jdbc_do_sql_command(Jconn * conn, const char *sql)
-{
-	Jresult    *res;
-
-	res = jq_exec(conn, sql);
-	if (*res != PGRES_COMMAND_OK)
-		jdbc_fdw_report_error(ERROR, res, conn, true, sql);
-	jq_clear(res);
-}
-
-/*
- * Release connection reference count created by calling GetConnection.
+ * Release JDBCUtils object created by jdbc_get_JDBCUtils.
  */
 void
-jdbc_release_connection(Jconn * conn)
+jdbc_release_jdbc_utils_obj(void)
 {
+	HASH_SEQ_STATUS scan;
+	JdbcUtilCacheEntry *entry;
+
+	/* there is no JDBCUtils object, do nothing */
+	if (JdbcUtilsHash == NULL)
+		return;
+
 	/*
-	 * Currently, we don't actually track connection references because all
-	 * cleanup is managed on a transaction or subtransaction basis instead. So
-	 * there's nothing to do here.
+	 * Scan all connection cache entries and release its resource
 	 */
-}
+	hash_seq_init(&scan, JdbcUtilsHash);
+	while ((entry = (JdbcUtilCacheEntry *) hash_seq_search(&scan)))
+	{
+		/* Ignore cache entry if no open connection right now */
+		if (entry->jdbcUtilsInfo == NULL)
+			continue;
 
-/*
- * Assign a "unique" number for a cursor.
- *
- * These really only need to be unique per connection within a transaction.
- * For the moment we ignore the per-connection point and assign them across
- * all connections in the transaction, but we ask for the connection to be
- * supplied in case we want to refine that.
- *
- * Note that even if wraparound happens in a very long transaction, actual
- * collisions are highly improbable; just be sure to use %u not %d to print.
- */
-unsigned int
-jdbc_get_cursor_number(Jconn * conn)
-{
-	return ++cursor_number;
-}
-
-/*
- * Assign a "unique" number for a prepared statement.
- *
- * This works much like jdbc_get_cursor_number, except that we never reset
- * the counter within a session.  That's because we can't be 100% sure we've
- * gotten rid of all prepared statements on all connections, and it's not
- * really worth increasing the risk of prepared-statement name collisions by
- * resetting.
- */
-unsigned int
-jdbc_get_prep_stmt_number(Jconn * conn)
-{
-	return ++prep_stmt_number;
+		/* release JDBCUtils resource */
+		jq_cancel(entry->jdbcUtilsInfo);
+		entry->jdbcUtilsInfo->JDBCUtilsObject = NULL;
+		pfree(entry->jdbcUtilsInfo);
+		entry->jdbcUtilsInfo = NULL;
+	}
+	jq_finish();
 }
 
 /*
  * Report an error we got from the remote server.
  *
  * elevel: error level to use (typically ERROR, but might be less) res:
- * Jresult containing the error conn: connection we did the query on clear:
+ * Jresult containing the error jdbcUtilsInfo: connection we did the query on clear:
  * if true, jq_clear the result (otherwise caller will handle it) sql: NULL,
  * or text of remote command we tried to execute
  *
  * Note: callers that choose not to throw ERROR for a remote error are
- * responsible for making sure that the associated ConnCacheEntry gets marked
+ * responsible for making sure that the associated JdbcUtilCacheEntry gets marked
  * with have_error = true.
  */
 void
-jdbc_fdw_report_error(int elevel, Jresult * res, Jconn * conn,
+jdbc_fdw_report_error(int elevel, Jresult * res, JDBCUtilsInfo * jdbcUtilsInfo,
 					  bool clear, const char *sql)
 {
 	/*
@@ -409,7 +403,7 @@ jdbc_fdw_report_error(int elevel, Jresult * res, Jconn * conn,
 		 * return NULL, not a Jresult at all.
 		 */
 		if (message_primary == NULL)
-			message_primary = jq_error_message(conn);
+			message_primary = jq_error_message(jdbcUtilsInfo);
 
 		ereport(elevel,
 				(errcode(sqlstate),
@@ -438,267 +432,33 @@ static void
 jdbcfdw_xact_callback(XactEvent event, void *arg)
 {
 	HASH_SEQ_STATUS scan;
-	ConnCacheEntry *entry;
+	JdbcUtilCacheEntry *entry;
 
 	/* Quick exit if no connections were touched in this transaction. */
 	if (!xact_got_connection)
 		return;
 
-	/*
-	 * Scan all connection cache entries to find open remote transactions, and
-	 * close them.
-	 */
-	hash_seq_init(&scan, ConnectionHash);
-	while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
+	if (event == XACT_EVENT_COMMIT || event == XACT_EVENT_ABORT)
 	{
-		Jresult    *res;
-
-		/* Ignore cache entry if no open connection right now */
-		if (entry->conn == NULL)
-			continue;
-
-		/* If it has an open remote transaction, try to close it */
-		if (entry->xact_depth > 0)
+		/*
+		 * Scan all connection cache entries and release its resource
+		 */
+		hash_seq_init(&scan, JdbcUtilsHash);
+		while ((entry = (JdbcUtilCacheEntry *) hash_seq_search(&scan)))
 		{
-			elog(DEBUG3, "closing remote transaction on connection %p",
-				 entry->conn);
+			/* Ignore cache entry if no open connection right now */
+			if (entry->jdbcUtilsInfo == NULL)
+				continue;
 
-			switch (event)
-			{
-				case XACT_EVENT_PRE_COMMIT:
-
-					/*
-					 * Commit all remote transactions during pre-commit
-					 */
-					jdbc_do_sql_command(entry->conn, "COMMIT TRANSACTION");
-
-					/*
-					 * If there were any errors in subtransactions, and we
-					 * made prepared statements, do a DEALLOCATE ALL to make
-					 * sure we get rid of all prepared statements. This is
-					 * annoying and not terribly bulletproof, but it's
-					 * probably not worth trying harder.
-					 *
-					 * DEALLOCATE ALL only exists in 8.3 and later, so this
-					 * constrains how old a server jdbc_fdw can communicate
-					 * with.  We intentionally ignore errors in the
-					 * DEALLOCATE, so that we can hobble along to some extent
-					 * with older servers (leaking prepared statements as we
-					 * go; but we don't really support update operations
-					 * pre-8.3 anyway).
-					 */
-					if (entry->have_prep_stmt && entry->have_error)
-					{
-						res = jq_exec(entry->conn, "DEALLOCATE ALL");
-						jq_clear(res);
-					}
-					entry->have_prep_stmt = false;
-					entry->have_error = false;
-					break;
-				case XACT_EVENT_PRE_PREPARE:
-
-					/*
-					 * We disallow remote transactions that modified anything,
-					 * since it's not very reasonable to hold them open until
-					 * the prepared transaction is committed.  For the moment,
-					 * throw error unconditionally; later we might allow
-					 * read-only cases. Note that the error will cause us to
-					 * come right back here with event == XACT_EVENT_ABORT, so
-					 * we'll clean up the connection state at that point.
-					 */
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("cannot prepare a transaction that modified remote tables")));
-					break;
-				case XACT_EVENT_COMMIT:
-				case XACT_EVENT_PREPARE:
-
-					/*
-					 * Pre-commit should have closed the open transaction
-					 */
-					elog(ERROR, "missed cleaning up connection during pre-commit");
-					break;
-				case XACT_EVENT_ABORT:
-				{
-					jdbcfdw_abort_cleanup(entry, true);
-					break;
-				}
-				case XACT_EVENT_PARALLEL_COMMIT:
-					break;
-				case XACT_EVENT_PARALLEL_ABORT:
-					break;
-				case XACT_EVENT_PARALLEL_PRE_COMMIT:
-					break;
-			}
+			/* release JDBCUtils resource */
+			jq_cancel(entry->jdbcUtilsInfo);
+			entry->jdbcUtilsInfo->JDBCUtilsObject = NULL;
+			pfree(entry->jdbcUtilsInfo);
+			entry->jdbcUtilsInfo = NULL;
 		}
 
-		/* Reset state to show we're out of a transaction */
-		jdbcfdw_reset_xact_state(entry, true);
-	}
-
-	/*
-	 * Regardless of the event type, we can now mark ourselves as out of the
-	 * transaction.  (Note: if we are here during PRE_COMMIT or PRE_PREPARE,
-	 * this saves a useless scan of the hashtable during COMMIT or PREPARE.)
-	 */
-	xact_got_connection = false;
-
-	/* Also reset cursor numbering for next transaction */
-	cursor_number = 0;
-}
-
-/*
- * Abort remote transaction or subtransaction.
- *
- * "toplevel" should be set to true if toplevel (main) transaction is
- * rollbacked, false otherwise.
- *
- * Set entry->changing_xact_state to false on success, true on failure.
- */
-static void
-jdbcfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel)
-{
-	Jresult    *res;
-
-	if (toplevel)
-	{
-		/*
-		 * Assume we might have lost track of prepared statements
-		 */
-		entry->have_error = true;
-
-		/*
-		 * If we're aborting, abort all remote transactions too
-		 */
-		res = jq_exec(entry->conn, "ABORT TRANSACTION");
-
-		/*
-		 * Note: can't throw ERROR, it would be infinite loop
-		 */
-		if (*res != PGRES_COMMAND_OK)
-			jdbc_fdw_report_error(WARNING, res, entry->conn, true,
-									"ABORT TRANSACTION");
-		else
-		{
-			jq_clear(res);
-
-			/*
-			 * As above, make sure to clear any prepared stmts
-			 */
-			if (entry->have_prep_stmt && entry->have_error)
-			{
-				res = jq_exec(entry->conn, "DEALLOCATE ALL");
-				jq_clear(res);
-			}
-			entry->have_prep_stmt = false;
-			entry->have_error = false;
-		}
-	}
-	else
-	{
-		char sql[100];
-		int curlevel = GetCurrentTransactionNestLevel();
-
-		/*
-		 * Assume we might have lost track of prepared statements
-		 */
-		entry->have_error = true;
-
-		/* Rollback all remote subtransactions during abort */
-		snprintf(sql, sizeof(sql),
-				 "ROLLBACK TO SAVEPOINT s%d; RELEASE SAVEPOINT s%d",
-				 curlevel, curlevel);
-		res = jq_exec(entry->conn, sql);
-		if (*res != PGRES_COMMAND_OK)
-			jdbc_fdw_report_error(WARNING, res, entry->conn, true, sql);
-		else
-			jq_clear(res);
-	}
-}
-
-/*
- * jdbcfdw_subxact_callback --- cleanup at subtransaction end.
- */
-static void
-jdbcfdw_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
-						 SubTransactionId parentSubid, void *arg)
-{
-	HASH_SEQ_STATUS scan;
-	ConnCacheEntry *entry;
-	int			curlevel;
-
-	/* Nothing to do at subxact start, nor after commit. */
-	if (!(event == SUBXACT_EVENT_PRE_COMMIT_SUB ||
-		  event == SUBXACT_EVENT_ABORT_SUB))
-		return;
-
-	/* Quick exit if no connections were touched in this transaction. */
-	if (!xact_got_connection)
-		return;
-
-	/*
-	 * Scan all connection cache entries to find open remote subtransactions
-	 * of the current level, and close them.
-	 */
-	curlevel = GetCurrentTransactionNestLevel();
-	hash_seq_init(&scan, ConnectionHash);
-	while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
-	{
-		char		sql[100];
-
-		/*
-		 * We only care about connections with open remote subtransactions of
-		 * the current level.
-		 */
-		if (entry->conn == NULL || entry->xact_depth < curlevel)
-			continue;
-
-		if (entry->xact_depth > curlevel)
-			elog(ERROR, "missed cleaning up remote subtransaction at level %d",
-				 entry->xact_depth);
-
-		if (event == SUBXACT_EVENT_PRE_COMMIT_SUB)
-		{
-			/*
-			 * Commit all remote subtransactions during pre-commit
-			 */
-			snprintf(sql, sizeof(sql), "RELEASE SAVEPOINT s%d", curlevel);
-			jdbc_do_sql_command(entry->conn, sql);
-		}
-		else
-		{
-			jdbcfdw_abort_cleanup(entry, false);
-		}
-
-		/* OK, we're outta that level of subtransaction */
-		jdbcfdw_reset_xact_state(entry, false);
-	}
-}
-
-/*
- * jdbcfdw_reset_xact_state --- Reset state to show we're out of a (sub)transaction
- */
-static void
-jdbcfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel)
-{
-	if (toplevel)
-	{
-		entry->xact_depth = 0;
-
-		/*
-		 * If the connection isn't in a good idle state, discard it to
-		 * recover. Next GetConnection will open a new connection.
-		 */
-		if (jq_status(entry->conn) != CONNECTION_OK ||
-			jq_transaction_status(entry->conn) != PQTRANS_IDLE)
-		{
-			elog(DEBUG3, "discarding connection %p", entry->conn);
-			jq_finish(entry->conn);
-			entry->conn = NULL;
-		}
-	}
-	else
-	{
-		entry->xact_depth--;
+		jq_release_all_result_sets();
+		jq_finish();
+		xact_got_connection = false;
 	}
 }

@@ -5,6 +5,9 @@ DROP TABLE IF EXISTS tbl04;
 DROP TABLE IF EXISTS tbl05;
 DROP TABLE IF EXISTS test_explicit_cast;
 DROP TABLE IF EXISTS tbl06;
+DROP TABLE IF EXISTS non_error_throwing_api_date;
+DROP TABLE IF EXISTS temp_t1;
+DROP TABLE IF EXISTS temp_t2;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -42,3 +45,9 @@ INSERT INTO tbl06 VALUES (15, 45021.21, 2121, 'group_3', false, '1999-10-01 00:0
 INSERT INTO tbl06 VALUES (16, 121.9741, 23241, 'group_3', false, '2010-10-01 00:00:00');
 INSERT INTO tbl06 VALUES (17, 75, 316, 'group_3', false, '1999-10-01 10:10:00');
 INSERT INTO tbl06 VALUES (18, 6867.34, 8916, 'group_3', false, '2010-10-01 10:10:00');
+CREATE TABLE non_error_throwing_api_date (f1 text, id int PRIMARY KEY);
+INSERT INTO non_error_throwing_api_date VALUES ('now', 1);
+INSERT INTO non_error_throwing_api_date VALUES ('garbage', 2);
+INSERT INTO non_error_throwing_api_date VALUES ('6874898-01-01', 3);
+CREATE TABLE temp_t1 (f1 int, f2 int);
+CREATE TABLE temp_t2 (f1 bigint, f2 int);

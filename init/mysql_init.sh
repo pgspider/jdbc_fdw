@@ -4,7 +4,7 @@ MYSQL_HOST="localhost"
 MYSQL_PORT="3306"
 MYSQL_USER_NAME="root"
 MYSQL_DB_NAME="mysql_db"
-export PGS_SRC_DIR="/home/jenkins/01_PostgreSQL/postgres-REL_13_0/"
+export PGS_SRC_DIR="${HOME}/workplace/postgresql-16.0/"
 
 # Below commands must be run first time to create mysql_db
 # --connect to mysql with root user

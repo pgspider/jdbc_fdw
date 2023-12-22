@@ -1,6 +1,6 @@
 #!/bin/bash
 
-GRIDDB_HOME=${HOME}/99_Setup/griddb-4.6.0
+GRIDDB_HOME=${HOME}/workplace/griddb-5.1.0
 
 if [[ ! -d "${GRIDDB_HOME}" ]]; then
   echo "GRIDDB_HOME environment variable not set"
@@ -18,7 +18,7 @@ then
   ${GRIDDB_HOME}/bin/gs_stopnode -w -u admin/testadmin
 fi
 sleep 1
-rm -rf ${GS_HOME}/data/* ${GS_LOG}/*
+rm -rf ${GS_HOME}/data/* ${GS_LOG}/* ${GS_HOME}/txnlog/*
 echo "Starting GridDB server..."
 sed -i 's/\"clusterName\":.*/\"clusterName\":\"griddbfdwTestCluster\",/' ${GRIDDB_HOME}/conf/gs_cluster.json
 ${GRIDDB_HOME}/bin/gs_startnode -w -u admin/testadmin

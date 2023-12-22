@@ -18,7 +18,6 @@
  */
 
 import java.io.*;
-import java.net.URL;
 import java.sql.*;
 import java.time.LocalTime;
 import java.time.Instant;
@@ -28,14 +27,9 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class JDBCUtils {
-  private Connection conn = null;
-  private static JDBCDriverLoader jdbcDriverLoader;
-  private StringWriter exceptionStringWriter;
-  private PrintWriter exceptionPrintWriter;
-  private int queryTimeoutValue;
+  private JDBCConnection conn = null;
   private Statement tmpStmt;
   private PreparedStatement tmpPstmt;
-  private static ConcurrentHashMap<Integer, Connection> ConnectionHash = new ConcurrentHashMap<Integer, Connection>();
   private static int resultSetKey = 1;
   private static ConcurrentHashMap<Integer, resultSetInfo> resultSetInfoMap =
       new ConcurrentHashMap<Integer, resultSetInfo>();
@@ -50,47 +44,8 @@ public class JDBCUtils {
    *          3 - Password, 4 - Query timeout in seconds, 5 - jarfile
    *
    */
-  public void createConnection(int key, String[] options) throws Exception {
-    DatabaseMetaData dbMetadata;
-    Properties jdbcProperties;
-    Class jdbcDriverClass = null;
-    Driver jdbcDriver = null;
-    String driverClassName = options[0];
-    String url = options[1];
-    String userName = options[2];
-    String password = options[3];
-    String qTimeoutValue = options[4];
-    String fileName = options[5];
-
-    queryTimeoutValue = Integer.parseInt(qTimeoutValue);
-    exceptionStringWriter = new StringWriter();
-    exceptionPrintWriter = new PrintWriter(exceptionStringWriter);
-    try {
-      File JarFile = new File(fileName);
-      String jarfile_path = JarFile.toURI().toURL().toString();
-      if (jdbcDriverLoader == null) {
-        /* If jdbcDriverLoader is being created. */
-        jdbcDriverLoader = new JDBCDriverLoader(new URL[] {JarFile.toURI().toURL()});
-      } else if (jdbcDriverLoader.CheckIfClassIsLoaded(driverClassName) == null) {
-        jdbcDriverLoader.addPath(jarfile_path);
-      }
-      jdbcDriverClass = jdbcDriverLoader.loadClass(driverClassName);
-      jdbcDriver = (Driver) jdbcDriverClass.newInstance();
-      jdbcProperties = new Properties();
-      jdbcProperties.put("user", userName);
-      jdbcProperties.put("password", password);
-      /* get connection from cache */
-      if (ConnectionHash.containsKey(key)) {
-        conn = ConnectionHash.get(key);
-      }
-      if (conn == null) {
-        conn = jdbcDriver.connect(url, jdbcProperties);
-        ConnectionHash.put(key, conn);
-      }
-      dbMetadata = conn.getMetaData();
-    } catch (Throwable e) {
-      throw e;
-    }
+  public void createConnection(int key, long server_hashvalue, long mapping_hashvalue, String[] options) throws Exception {
+    this.conn = JDBCConnection.getConnection(key, server_hashvalue, mapping_hashvalue, options);
   }
 
   /*
@@ -105,9 +60,9 @@ public class JDBCUtils {
      */
     try {
       checkConnExist();
-      tmpStmt = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-      if (queryTimeoutValue != 0) {
-        tmpStmt.setQueryTimeout(queryTimeoutValue);
+      tmpStmt = conn.getConnection().createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+      if (conn.getQueryTimeout() != 0) {
+        tmpStmt.setQueryTimeout(conn.getQueryTimeout());
       }
       tmpStmt.executeQuery(query);
     } catch (Throwable e) {
@@ -130,9 +85,9 @@ public class JDBCUtils {
     int tmpResultSetKey;
     try {
       checkConnExist();
-      tmpStmt = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-      if (queryTimeoutValue != 0) {
-        tmpStmt.setQueryTimeout(queryTimeoutValue);
+      tmpStmt = conn.getConnection().createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+      if (conn.getQueryTimeout() != 0) {
+        tmpStmt.setQueryTimeout(conn.getQueryTimeout());
       }
       tmpResultSet = tmpStmt.executeQuery(query);
       rSetMetadata = tmpResultSet.getMetaData();
@@ -171,9 +126,9 @@ public class JDBCUtils {
   public int createPreparedStatement(String query) throws Exception {
     try {
       checkConnExist();
-      PreparedStatement tmpPstmt = (PreparedStatement) conn.prepareStatement(query);
-      if (queryTimeoutValue != 0) {
-        tmpPstmt.setQueryTimeout(queryTimeoutValue);
+      PreparedStatement tmpPstmt = (PreparedStatement) conn.getConnection().prepareStatement(query);
+      if (conn.getQueryTimeout() != 0) {
+        tmpPstmt.setQueryTimeout(conn.getQueryTimeout());
       }
       int tmpResultSetKey = initResultSetKey();
       resultSetInfoMap.put(tmpResultSetKey, new resultSetInfo(null, null, 0, tmpPstmt));
@@ -443,7 +398,7 @@ public class JDBCUtils {
   public String[] getTableNames() throws SQLException {
     try {
       checkConnExist();
-      DatabaseMetaData md = conn.getMetaData();
+      DatabaseMetaData md = conn.getConnection().getMetaData();
       ResultSet tmpResultSet = md.getTables(null, null, "%", null);
 
       List<String> tmpTableNamesList = new ArrayList<String>();
@@ -465,12 +420,10 @@ public class JDBCUtils {
    *      Returns the column name
    */
   public String[] getColumnNames(String tableName) throws SQLException {
-    int rowCount;
     try {
       checkConnExist();
-      DatabaseMetaData md = conn.getMetaData();
+      DatabaseMetaData md = conn.getConnection().getMetaData();
       ResultSet tmpResultSet = md.getColumns(null, null, tableName, null);
-      ResultSetMetaData rSetMetadata = tmpResultSet.getMetaData();
       List<String> tmpColumnNamesList = new ArrayList<String>();
       while (tmpResultSet.next()) {
         tmpColumnNamesList.add(tmpResultSet.getString("COLUMN_NAME"));
@@ -490,12 +443,10 @@ public class JDBCUtils {
    *      Returns the column name
    */
   public String[] getColumnTypes(String tableName) throws SQLException {
-    int rowCount;
     try {
       checkConnExist();
-      DatabaseMetaData md = conn.getMetaData();
+      DatabaseMetaData md = conn.getConnection().getMetaData();
       ResultSet tmpResultSet = md.getColumns(null, null, tableName, null);
-      ResultSetMetaData rSetMetadata = tmpResultSet.getMetaData();
       List<String> tmpColumnTypesList = new ArrayList<String>();
       while (tmpResultSet.next()) {
         tmpColumnTypesList.add(tmpResultSet.getString("TYPE_NAME"));
@@ -567,9 +518,8 @@ public class JDBCUtils {
   public String[] getPrimaryKey(String tableName) throws SQLException {
     try {
       checkConnExist();
-      DatabaseMetaData md = conn.getMetaData();
+      DatabaseMetaData md = conn.getConnection().getMetaData();
       ResultSet tmpResultSet = md.getPrimaryKeys(null, null, tableName);
-      ResultSetMetaData rSetMetadata = tmpResultSet.getMetaData();
       List<String> tmpPrimaryKeyList = new ArrayList<String>();
       while (tmpResultSet.next()) {
         tmpPrimaryKeyList.add(tmpResultSet.getString("COLUMN_NAME"));
@@ -591,8 +541,6 @@ public class JDBCUtils {
    */
   public void closeStatement() throws SQLException {
     try {
-      resultSetInfoMap.clear();
-
       if (tmpStmt != null) {
         tmpStmt.close();
         tmpStmt = null;
@@ -600,22 +548,6 @@ public class JDBCUtils {
       if (tmpPstmt != null) {
         tmpPstmt.close();
         tmpPstmt = null;
-      }
-    } catch (Throwable e) {
-      throw e;
-    }
-  }
-
-  /*
-   * closeConnection
-   *     Releases the resources used by connection.
-   */
-  public void closeConnection() throws SQLException {
-    try {
-      closeStatement();
-      if (conn != null) {
-        conn.close();
-        conn = null;
       }
     } catch (Throwable e) {
       throw e;
@@ -884,23 +816,40 @@ public class JDBCUtils {
   }
 
   /*
+   * bindDatePreparedStatement
+   *      Bind the value to the PreparedStatement object based on the query
+   */
+  public void bindDatePreparedStatement(String values, int attnum, int resultSetID)
+    throws SQLException {
+    try {
+      checkConnExist();
+      PreparedStatement tmpPstmt = resultSetInfoMap.get(resultSetID).getPstmt();
+      checkPstmt(tmpPstmt);
+      tmpPstmt.setDate(attnum, java.sql.Date.valueOf(values));
+      resultSetInfoMap.get(resultSetID).setPstmt(tmpPstmt);
+    } catch (Throwable e) {
+      throw e;
+    }
+  }
+
+  /*
    * Avoid race case.
    */
   synchronized public int initResultSetKey() throws Exception{
     try{
-      int datum = this.resultSetKey;
-      while (resultSetInfoMap.containsKey(this.resultSetKey)) {
+      int datum = resultSetKey;
+      while (resultSetInfoMap.containsKey(resultSetKey)) {
         /* avoid giving minus key */
-        if (this.resultSetKey == Integer.MAX_VALUE) {
-          this.resultSetKey = 1;
+        if (resultSetKey == Integer.MAX_VALUE) {
+          resultSetKey = 1;
         }
-        this.resultSetKey++;
+        resultSetKey++;
         /* resultSetKey full */
-        if (this.resultSetKey == datum) {
+        if (resultSetKey == datum) {
           throw new SQLException("resultSetKey is full");
         }
       }
-      return this.resultSetKey;
+      return resultSetKey;
     } catch (Throwable e) {
       throw e;
     }
@@ -912,10 +861,30 @@ public class JDBCUtils {
   public String getIdentifierQuoteString() throws SQLException{
     try{
       checkConnExist();
-      DatabaseMetaData md = conn.getMetaData();
+      DatabaseMetaData md = conn.getConnection().getMetaData();
       return md.getIdentifierQuoteString();
     } catch (Throwable e) {
       throw e;
     }
+  }
+
+  /* finalize all actived connection */
+  public static void finalizeAllConns(long hashvalue) throws Exception {
+    JDBCConnection.finalizeAllConns(hashvalue);
+  }
+
+  /* finalize connection have given server_hashvalue */
+  public static void finalizeAllServerConns(long hashvalue) throws Exception {
+    JDBCConnection.finalizeAllServerConns(hashvalue);
+  }
+
+  /* finalize connection have given mapping_hashvalue */
+  public static void finalizeAllUserMapingConns(long hashvalue) throws Exception {
+    JDBCConnection.finalizeAllUserMapingConns(hashvalue);
+  }
+
+  /* finalize cached result set */
+  public static void finalizeAllResultSet() {
+    resultSetInfoMap.clear();
   }
 }
