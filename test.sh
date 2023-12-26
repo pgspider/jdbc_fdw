@@ -29,20 +29,20 @@ case "$TARGET_DB" in
     ./init.sh
     cd ../..;;
   "mysql" )
-    sed -i 's/REGRESS =.*/REGRESS = mysql\/new_test mysql\/aggregates mysql\/float8 mysql\/insert mysql\/select mysql\/update mysql\/delete mysql\/float4 mysql\/int4 mysql\/int8 mysql\/ported_postgres_fdw mysql\/exec_function /' Makefile
+    sed -i 's/REGRESS =.*/REGRESS = mysql\/new_test mysql\/aggregates mysql\/date mysql\/float8 mysql\/insert mysql\/select mysql\/update mysql\/delete mysql\/float4 mysql\/int4 mysql\/int8 mysql\/ported_postgres_fdw mysql\/exec_function /' Makefile
     ./init/mysql_init.sh ;;
   "postgresql" )
-    sed -i 's/REGRESS =.*/REGRESS = postgresql\/new_test postgresql\/aggregates postgresql\/float8 postgresql\/insert postgresql\/select postgresql\/update postgresql\/delete postgresql\/float4 postgresql\/int4 postgresql\/int8 postgresql\/ported_postgres_fdw postgresql\/exec_function /' Makefile
+    sed -i 's/REGRESS =.*/REGRESS = postgresql\/new_test postgresql\/aggregates postgresql\/date postgresql\/float8 postgresql\/insert postgresql\/select postgresql\/update postgresql\/delete postgresql\/float4 postgresql\/int4 postgresql\/int8 postgresql\/ported_postgres_fdw postgresql\/exec_function /' Makefile
     ./init/postgresql_init.sh --start;;
   *)
-    sed -i 's/REGRESS =.*/REGRESS = griddb\/new_test griddb\/aggregates griddb\/float8 griddb\/insert griddb\/select griddb\/update griddb\/delete griddb\/float4 griddb\/int4 griddb\/int8 griddb\/ported_postgres_fdw griddb\/exec_function mysql\/new_test mysql\/aggregates mysql\/float8 mysql\/insert mysql\/select mysql\/update mysql\/delete mysql\/float4 mysql\/int4 mysql\/int8 mysql\/ported_postgres_fdw mysql\/exec_function postgresql\/new_test postgresql\/aggregates postgresql\/float8 postgresql\/insert postgresql\/select postgresql\/update postgresql\/delete postgresql\/float4 postgresql\/int4 postgresql\/int8 postgresql\/ported_postgres_fdw postgresql\/exec_function /' Makefile
+    sed -i 's/REGRESS =.*/REGRESS = griddb\/new_test griddb\/aggregates griddb\/float8 griddb\/insert griddb\/select griddb\/update griddb\/delete griddb\/float4 griddb\/int4 griddb\/int8 griddb\/ported_postgres_fdw griddb\/exec_function mysql\/new_test mysql\/aggregates mysql\/date mysql\/float8 mysql\/insert mysql\/select mysql\/update mysql\/delete mysql\/float4 mysql\/int4 mysql\/int8 mysql\/ported_postgres_fdw mysql\/exec_function postgresql\/new_test postgresql\/aggregates postgresql\/date postgresql\/float8 postgresql\/insert postgresql\/select postgresql\/update postgresql\/delete postgresql\/float4 postgresql\/int4 postgresql\/int8 postgresql\/ported_postgres_fdw postgresql\/exec_function /' Makefile
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/init/make_check_initializer_griddb/griddb/bin/
     cd init/make_check_initializer_griddb
     chmod +x ./*.sh || true
     ./init.sh
     cd ../..
-    ./init/postgresql_init.sh
-    ./init/mysql_init.sh ;;
+    ./init/postgresql_init.sh --start;
+    ./init/mysql_init.sh ;
 esac
 
 make clean

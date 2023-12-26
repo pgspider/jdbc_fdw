@@ -12,7 +12,6 @@
  *-------------------------------------------------------------------------
  */
 import java.sql.*;
-import java.util.*;
 
 public class resultSetInfo {
   private ResultSet resultSet;

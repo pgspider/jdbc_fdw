@@ -49,9 +49,7 @@
  */
 
 static __thread JNIEnv * Jenv = NULL;
-static JavaVM * jvm;
-jobject		java_call;
-static volatile bool InterruptFlag;		/* Used for checking for SIGINT interrupt */
+static JavaVM * jvm = NULL;
 
 /*
  * Describes the valid options for objects that use this wrapper.
@@ -80,18 +78,20 @@ typedef struct JserverOptions
 static JserverOptions opts;
 
 /* Local function prototypes */
-static int	jdbc_connect_db_complete(Jconn * conn);
-void jdbc_jvm_init(const ForeignServer * server, const UserMapping * user);
-static void jdbc_get_server_options(JserverOptions * opts, const ForeignServer * f_server, const UserMapping * f_mapping);
-static Jconn * jdbc_create_JDBC_connection(const ForeignServer * server, const UserMapping * user);
+static int	jdbc_connect_db_complete(JDBCUtilsInfo * jdbcUtilsInfo);
+void		jdbc_jvm_init(const ForeignServer *server, const UserMapping *user);
+static void jdbc_get_server_options(JserverOptions * opts, const ForeignServer *f_server, const UserMapping *f_mapping);
+static JDBCUtilsInfo * jdbc_create_JDBC_connection(const ForeignServer *server, const UserMapping *user);
 /*
  * Uses a String object's content to create an instance of C String
  */
 static char *jdbc_convert_string_to_cstring(jobject);
+
 /*
  * Convert byte array to Datum
  */
 static Datum jdbc_convert_byte_array_to_datum(jbyteArray);
+
 /*
  * Common function to convert Object value to datum
  */
@@ -105,17 +105,12 @@ static void jdbc_destroy_jvm();
 /*
  * JVM attach function
  */
-static void jdbc_attach_jvm();
+static void jdbc_attach_jvm(void);
 
 /*
  * JVM detach function
  */
 static void jdbc_detach_jvm();
-
-/*
- * SIGINT interrupt check and process function
- */
-static void jdbc_sig_int_interrupt_check_process();
 
 /*
  * clears any exception that is currently being thrown
@@ -130,43 +125,62 @@ void		jq_get_exception(void);
 /*
  * get table infomations for importForeignSchema
  */
-static List * jq_get_column_infos(Jconn * conn, char *tablename);
-static List * jq_get_table_names(Jconn * conn);
+static List *jq_get_column_infos(JDBCUtilsInfo * jdbcUtilsInfo, char *tablename);
+static List *jq_get_table_names(JDBCUtilsInfo * jdbcUtilsInfo);
 
 
-static void jq_get_JDBCUtils(Jconn *conn, jclass *JDBCUtilsClass, jobject *JDBCUtilsObject);
+static void jq_get_JDBCUtils(JDBCUtilsInfo * jdbcUtilsInfo, jclass * JDBCUtilsClass, jobject * JDBCUtilsObject);
 
-/*
- * jdbc_sig_int_interrupt_check_process Checks and processes if SIGINT
- * interrupt occurs
+/* jq_cancel
+ * 		Call cancel method from JDBCUtilsObject to release
+ *		prepared statement and temporary result-set.
  */
-static void
-jdbc_sig_int_interrupt_check_process()
+void
+jq_cancel(JDBCUtilsInfo * jdbcUtilsInfo)
 {
+	jclass		JDBCUtilsClass;
+	jmethodID	id_cancel;
+	MemoryContext ccxt = CurrentMemoryContext;
 
-	if (InterruptFlag == true)
+	/* JDBCUtils object has been cleaned, do nothing */
+	if (jvm == NULL || Jenv == NULL)
+		return;
+
+	PG_TRY();
 	{
-		jclass		JDBCUtilsClass;
-		jmethodID	id_cancel;
-
 		JDBCUtilsClass = (*Jenv)->FindClass(Jenv, "JDBCUtils");
 		if (JDBCUtilsClass == NULL)
 		{
 			elog(ERROR, "JDBCUtilsClass is NULL");
 		}
 		id_cancel = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "cancel",
-										 "()V");
+											"()V");
 		if (id_cancel == NULL)
 		{
 			elog(ERROR, "id_cancel is NULL");
 		}
 		jq_exception_clear();
-		(*Jenv)->CallObjectMethod(Jenv, java_call, id_cancel);
+		(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, id_cancel);
 		jq_get_exception();
-		InterruptFlag = false;
-		elog(ERROR, "Query has been cancelled");
 	}
+	PG_CATCH();
+	{
+		ErrorData  *edata;
+
+		/* Save error info */
+		MemoryContextSwitchTo(ccxt);
+		edata = CopyErrorData();
+		FlushErrorState();
+
+		/*
+		 * We are in Transaction abort callback, raise error here may making
+		 * the infinity loop.
+		 */
+		elog(WARNING, "jq_cancel failed: %s", edata->message);
+	}
+	PG_END_TRY();
 }
+
 
 /*
  * jdbc_convert_string_to_cstring Uses a String object passed as a jobject to
@@ -178,8 +192,6 @@ jdbc_convert_string_to_cstring(jobject java_cstring)
 	jclass		JavaString;
 	char	   *StringPointer;
 	char	   *cString = NULL;
-
-	jdbc_sig_int_interrupt_check_process();
 
 	JavaString = (*Jenv)->FindClass(Jenv, "java/lang/String");
 	if (!((*Jenv)->IsInstanceOf(Jenv, java_cstring, JavaString)))
@@ -213,8 +225,6 @@ jdbc_convert_byte_array_to_datum(jbyteArray byteVal)
 	jbyte	   *buf = (*Jenv)->GetByteArrayElements(Jenv, byteVal, NULL);
 	jsize		size = (*Jenv)->GetArrayLength(Jenv, byteVal);
 
-	jdbc_sig_int_interrupt_check_process();
-
 	if (buf == NULL)
 		return 0;
 
@@ -235,19 +245,19 @@ jdbc_convert_object_to_datum(Oid pgtype, int32 pgtypmod, jobject obj)
 		case BYTEAOID:
 			return jdbc_convert_byte_array_to_datum(obj);
 		default:
-		{
-			/*
-			 * By default, data is retrieved as string and then
-			 * convert to compatible data types
-			 */
-			char   *value = jdbc_convert_string_to_cstring(obj);
+			{
+				/*
+				 * By default, data is retrieved as string and then convert to
+				 * compatible data types
+				 */
+				char	   *value = jdbc_convert_string_to_cstring(obj);
 
-			if (value != NULL)
-				return jdbc_convert_to_pg(pgtype, pgtypmod, value);
-			else
-				/* Return 0 if value is NULL */
-				return 0;
-		}
+				if (value != NULL)
+					return jdbc_convert_to_pg(pgtype, pgtypmod, value);
+				else
+					/* Return 0 if value is NULL */
+					return 0;
+			}
 	}
 }
 
@@ -257,20 +267,34 @@ jdbc_convert_object_to_datum(Oid pgtype, int32 pgtypmod, jobject obj)
 static void
 jdbc_destroy_jvm()
 {
+	jint res;
+
 	ereport(DEBUG3, (errmsg("In jdbc_destroy_jvm")));
 
-	(*jvm)->DestroyJavaVM(jvm);
+	res = (*jvm)->DestroyJavaVM(jvm);
+
+	/*
+	 * jdbc_destroy_jvm will be called at on_proc_exit callback,
+	 * so WARNING instead of ERROR for safe.
+	 */
+	if (res != JNI_OK)
+		elog(WARNING, "jdbc_fdw: AttachCurrentThread failed with error code %d", res);
 }
 
 /*
  * jdbc_attach_jvm Attach the JVM.
  */
 static void
-jdbc_attach_jvm()
+jdbc_attach_jvm(void)
 {
+	jint res;
+
 	ereport(DEBUG3, (errmsg("In jdbc_attach_jvm")));
 
-	(*jvm)->AttachCurrentThread(jvm, (void **) &Jenv, NULL);
+	res = (*jvm)->AttachCurrentThread(jvm, (void **) &Jenv, NULL);
+
+	if (res != JNI_OK)
+		elog(ERROR, "jdbc_fdw: AttachCurrentThread failed with error code %d", res);
 }
 
 /*
@@ -280,8 +304,18 @@ static void
 jdbc_detach_jvm()
 {
 	ereport(DEBUG3, (errmsg("In jdbc_detach_jvm")));
+	if (Jenv != NULL)
+	{
+		jint res = (*jvm)->DetachCurrentThread(jvm);
 
-	(*jvm)->DetachCurrentThread(jvm);
+		/*
+		 * jdbc_detach_jvm can be call at abort transaction callback,
+		 * so WARNING instead of ERROR for safe
+		 */
+		if (res != JNI_OK)
+			elog(WARNING, "jdbc_fdw: DetachCurrentThread failed with error code %d", res);
+		Jenv = NULL;
+	}
 }
 
 /*
@@ -290,7 +324,7 @@ jdbc_detach_jvm()
  *
  */
 void
-jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
+jdbc_jvm_init(const ForeignServer *server, const UserMapping *user)
 {
 	static bool FunctionCallCheck = false;	/* This flag safeguards against
 											 * multiple calls of
@@ -300,8 +334,6 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
 								 * whether JVM has been correctly created or
 								 * not */
 	JavaVMInitArgs vm_args;
-	JavaVMOption *options;
-	char		strpkglibdir[] = STR_PKGLIBDIR;
 	char	   *classpath;
 	char	   *maxheapsizeoption = NULL;
 
@@ -311,49 +343,52 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
 	jdbc_get_server_options(&opts, server, user);	/* Get the maxheapsize
 													 * value (if set) */
 
-	jdbc_sig_int_interrupt_check_process();
-
 	if (FunctionCallCheck == false)
 	{
 		const char* env_classpath = getenv("CLASSPATH");
 
+		vm_args.version = JNI_VERSION_1_2;
+		vm_args.ignoreUnrecognized = JNI_FALSE;
+		vm_args.nOptions = 2;
+
 		if (env_classpath != NULL) {
-			classpath = psprintf("-Djava.class.path=%s" PATH_SEPARATOR "%s", strpkglibdir, env_classpath);
+			classpath = psprintf("-Djava.class.path=%s" PATH_SEPARATOR "%s", STR_PKGLIBDIR, env_classpath);
 		} else {
-			classpath = psprintf("-Djava.class.path=%s", strpkglibdir);
+			classpath = psprintf("-Djava.class.path=%s", STR_PKGLIBDIR);
 		}
 
 
 		if (opts.maxheapsize != 0)
-		{						/* If the user has given a value for setting
-								 * the max heap size of the JVM */
-			options = (JavaVMOption *) palloc0(sizeof(JavaVMOption) * 2);
-			maxheapsizeoption = (char *) palloc0(sizeof(int) + 6);
-			snprintf(maxheapsizeoption, sizeof(int) + 6, "-Xmx%dm", opts.maxheapsize);
-			options[0].optionString = classpath;
-			options[1].optionString = maxheapsizeoption;
-			vm_args.nOptions = 2;
-		}
-		else
 		{
-			options = (JavaVMOption *) palloc0(sizeof(JavaVMOption));
-			options[0].optionString = classpath;
-			vm_args.nOptions = 1;
+			/*
+			 * If the user has given a value for setting the max heap size of
+			 * the JVM
+			 */
+			maxheapsizeoption = psprintf("-Xmx%dm", opts.maxheapsize);
+			vm_args.nOptions++;
 		}
-		vm_args.version = JNI_VERSION_1_2;
-		vm_args.options = options;
-		vm_args.ignoreUnrecognized = JNI_FALSE;
+		vm_args.options = (JavaVMOption *) palloc0(sizeof(JavaVMOption) * vm_args.nOptions);
+
+		/*
+		 * PostgreSQL must use its own signal handlers, so use -Xrs option to
+		 * reduces the use of operating system signals by the JVM.
+		 */
+		vm_args.options[0].optionString = "-Xrs";
+		vm_args.options[1].optionString = classpath;
+
+		if (maxheapsizeoption != NULL)
+		{
+			vm_args.options[2].optionString = maxheapsizeoption;
+		}
 
 		/* Create the Java VM */
 		res = JNI_CreateJavaVM(&jvm, (void **) &Jenv, &vm_args);
 		if (res < 0)
 		{
-			ereport(ERROR,
-					(errmsg("Failed to create Java VM")
-					 ));
+			ereport(ERROR, (errmsg("Failed to create Java VM")));
 		}
+		jdbc_attach_jvm();
 		ereport(DEBUG3, (errmsg("Successfully created a JVM with %d MB heapsize and classpath set to '%s'", opts.maxheapsize, classpath)));
-		InterruptFlag = false;
 		/* Register an on_proc_exit handler that shuts down the JVM. */
 		on_proc_exit(jdbc_destroy_jvm, 0);
 		FunctionCallCheck = true;
@@ -386,8 +421,8 @@ jdbc_jvm_init(const ForeignServer * server, const UserMapping * user)
  * CONNECTION_OK and a valid reference to a JDBCUtils class Error return:
  * Jconn.status = CONNECTION_BAD
  */
-static Jconn *
-jdbc_create_JDBC_connection(const ForeignServer * server, const UserMapping * user)
+static JDBCUtilsInfo *
+jdbc_create_JDBC_connection(const ForeignServer *server, const UserMapping *user)
 {
 	jmethodID	idCreate;
 	jstring		stringArray[6];
@@ -403,23 +438,31 @@ jdbc_create_JDBC_connection(const ForeignServer * server, const UserMapping * us
 																	 * to Java */
 	int			intSize = 10;	/* The string size to allocate for an integer
 								 * value */
-	int			keyid = server->serverid;	/* key for the hashtable in java
-											 * depends on serverid */
-	MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);	/* Switch the memory context to TopMemoryContext to avoid the
-																		 * case connection is released when execution state finished */
-	Jconn	   *conn = (Jconn *) palloc0(sizeof(Jconn));
+	int			keyid = user->umid; /* key for the hashtable in java depends
+									 * on user mapping Oid  */
+	MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext); /* Switch the memory
+																		 * context to
+																		 * TopMemoryContext to
+																		 * avoid the case
+																		 * connection is
+																		 * released when
+																		 * execution state
+																		 * finished */
+	JDBCUtilsInfo *jdbcUtilsInfo = (JDBCUtilsInfo *) palloc0(sizeof(JDBCUtilsInfo));
+	jlong		server_hashvalue;
+	jlong		mapping_hashvalue;
 
 	ereport(DEBUG3, (errmsg("In jdbc_create_JDBC_connection")));
-	conn->status = CONNECTION_BAD;
-	conn->festate = (jdbcFdwExecutionState *) palloc0(sizeof(jdbcFdwExecutionState));
-	conn->festate->query = NULL;
+	jdbcUtilsInfo->status = CONNECTION_BAD;
+	jdbcUtilsInfo->festate = (jdbcFdwExecutionState *) palloc0(sizeof(jdbcFdwExecutionState));
+	jdbcUtilsInfo->festate->query = NULL;
 	JDBCUtilsClass = (*Jenv)->FindClass(Jenv, "JDBCUtils");
 	if (JDBCUtilsClass == NULL)
 	{
 		ereport(ERROR, (errmsg("Failed to find the JDBCUtils class!")));
 	}
 	idCreate = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "createConnection",
-									"(I[Ljava/lang/String;)V");
+									"(IJJ[Ljava/lang/String;)V");
 	if (idCreate == NULL)
 	{
 		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.createConnection method!")));
@@ -458,8 +501,8 @@ jdbc_create_JDBC_connection(const ForeignServer * server, const UserMapping * us
 	{
 		(*Jenv)->SetObjectArrayElement(Jenv, argArray, i, stringArray[i]);
 	}
-	conn->JDBCUtilsObject = (*Jenv)->AllocObject(Jenv, JDBCUtilsClass);
-	if (conn->JDBCUtilsObject == NULL)
+	jdbcUtilsInfo->JDBCUtilsObject = (*Jenv)->AllocObject(Jenv, JDBCUtilsClass);
+	if (jdbcUtilsInfo->JDBCUtilsObject == NULL)
 	{
 		/* Return Java memory */
 		for (i = 0; i < numParams; i++)
@@ -469,8 +512,12 @@ jdbc_create_JDBC_connection(const ForeignServer * server, const UserMapping * us
 		(*Jenv)->DeleteLocalRef(Jenv, argArray);
 		ereport(ERROR, (errmsg("Failed to create java call")));
 	}
+
+	server_hashvalue = (jlong) GetSysCacheHashValue1(FOREIGNSERVEROID, ObjectIdGetDatum(server->serverid));
+	mapping_hashvalue = (jlong) GetSysCacheHashValue1(USERMAPPINGOID, ObjectIdGetDatum(user->umid));
+
 	jq_exception_clear();
-	(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idCreate, keyid, argArray);
+	(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idCreate, keyid, server_hashvalue, mapping_hashvalue, argArray);
 	jq_get_exception();
 	/* Return Java memory */
 	for (i = 0; i < numParams; i++)
@@ -481,22 +528,22 @@ jdbc_create_JDBC_connection(const ForeignServer * server, const UserMapping * us
 	ereport(DEBUG3, (errmsg("Created a JDBC connection: %s", opts.url)));
 	/* get default identifier quote string */
 	jq_exception_clear();
-	identifierQuoteString = (jstring) (*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idGetIdentifierQuoteString);
+	identifierQuoteString = (jstring) (*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idGetIdentifierQuoteString);
 	jq_get_exception();
 	quote_string = jdbc_convert_string_to_cstring((jobject) identifierQuoteString);
-	conn->q_char = pstrdup(quote_string);
-	conn->status = CONNECTION_OK;
+	jdbcUtilsInfo->q_char = pstrdup(quote_string);
+	jdbcUtilsInfo->status = CONNECTION_OK;
 	pfree(querytimeout_string);
 	/* Switch back to old context */
 	MemoryContextSwitchTo(oldcontext);
-	return conn;
+	return jdbcUtilsInfo;
 }
 
 /*
  * Fetch the options for a jdbc_fdw foreign server and user mapping.
  */
 static void
-jdbc_get_server_options(JserverOptions * opts, const ForeignServer * f_server, const UserMapping * f_mapping)
+jdbc_get_server_options(JserverOptions * opts, const ForeignServer *f_server, const UserMapping *f_mapping)
 {
 	List	   *options;
 	ListCell   *lc;
@@ -543,7 +590,7 @@ jdbc_get_server_options(JserverOptions * opts, const ForeignServer * f_server, c
 }
 
 Jresult *
-jq_exec(Jconn * conn, const char *query)
+jq_exec(JDBCUtilsInfo * jdbcUtilsInfo, const char *query)
 {
 	jmethodID	idCreateStatement;
 	jstring		statement;
@@ -551,9 +598,9 @@ jq_exec(Jconn * conn, const char *query)
 	jobject		JDBCUtilsObject;
 	Jresult    *res;
 
-	ereport(DEBUG3, (errmsg("In jq_exec(%p): %s", conn, query)));
+	ereport(DEBUG3, (errmsg("In jq_exec(%p): %s", jdbcUtilsInfo, query)));
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
 	res = (Jresult *) palloc0(sizeof(Jresult));
 	*res = PGRES_FATAL_ERROR;
@@ -571,7 +618,7 @@ jq_exec(Jconn * conn, const char *query)
 		ereport(ERROR, (errmsg("Failed to create query argument")));
 	}
 	jq_exception_clear();
-	(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idCreateStatement, statement);
+	(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idCreateStatement, statement);
 	jq_get_exception();
 	/* Return Java memory */
 	(*Jenv)->DeleteLocalRef(Jenv, statement);
@@ -580,7 +627,7 @@ jq_exec(Jconn * conn, const char *query)
 }
 
 Jresult *
-jq_exec_id(Jconn * conn, const char *query, int *resultSetID)
+jq_exec_id(JDBCUtilsInfo * jdbcUtilsInfo, const char *query, int *resultSetID)
 {
 	jmethodID	idCreateStatementID;
 	jstring		statement;
@@ -588,9 +635,9 @@ jq_exec_id(Jconn * conn, const char *query, int *resultSetID)
 	jobject		JDBCUtilsObject;
 	Jresult    *res;
 
-	ereport(DEBUG3, (errmsg("In jq_exec_id(%p): %s", conn, query)));
+	ereport(DEBUG3, (errmsg("In jq_exec_id(%p): %s", jdbcUtilsInfo, query)));
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
 	res = (Jresult *) palloc0(sizeof(Jresult));
 	*res = PGRES_FATAL_ERROR;
@@ -608,7 +655,7 @@ jq_exec_id(Jconn * conn, const char *query, int *resultSetID)
 		ereport(ERROR, (errmsg("Failed to create query argument")));
 	}
 	jq_exception_clear();
-	*resultSetID = (int) (*Jenv)->CallIntMethod(Jenv, conn->JDBCUtilsObject, idCreateStatementID, statement);
+	*resultSetID = (int) (*Jenv)->CallIntMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idCreateStatementID, statement);
 	jq_get_exception();
 	if (*resultSetID < 0)
 	{
@@ -625,7 +672,7 @@ jq_exec_id(Jconn * conn, const char *query, int *resultSetID)
 }
 
 void *
-jq_release_resultset_id(Jconn * conn, int resultSetID)
+jq_release_resultset_id(JDBCUtilsInfo * jdbcUtilsInfo, int resultSetID)
 {
 	jmethodID	idClearResultSetID;
 	jclass		JDBCUtilsClass;
@@ -633,7 +680,7 @@ jq_release_resultset_id(Jconn * conn, int resultSetID)
 
 	ereport(DEBUG3, (errmsg("In jq_release_resultset_id: %d", resultSetID)));
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
 	idClearResultSetID = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "clearResultSetID",
 											  "(I)V");
@@ -642,7 +689,7 @@ jq_release_resultset_id(Jconn * conn, int resultSetID)
 		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.clearResultSetID method!")));
 	}
 	jq_exception_clear();
-	(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idClearResultSetID, resultSetID);
+	(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idClearResultSetID, resultSetID);
 	jq_get_exception();
 
 	return NULL;
@@ -652,7 +699,7 @@ jq_release_resultset_id(Jconn * conn, int resultSetID)
  * jq_iterate: Read the next row from the remote server
  */
 TupleTableSlot *
-jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int resultSetID)
+jq_iterate(JDBCUtilsInfo * jdbcUtilsInfo, ForeignScanState *node, List *retrieved_attrs, int resultSetID)
 {
 	jobject		JDBCUtilsObject;
 	TupleTableSlot *tupleSlot = node->ss.ss_ScanTupleSlot;
@@ -661,7 +708,6 @@ jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int re
 	jmethodID	idResultSet;
 	jmethodID	idNumberOfColumns;
 	jobjectArray rowArray;
-	char	  **values;
 	int			numberOfColumns;
 	int			i;
 
@@ -670,10 +716,9 @@ jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int re
 	memset(tupleSlot->tts_values, 0, sizeof(Datum) * tupleDescriptor->natts);
 	memset(tupleSlot->tts_isnull, true, sizeof(bool) * tupleDescriptor->natts);
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
 	ExecClearTuple(tupleSlot);
-	jdbc_sig_int_interrupt_check_process();
 
 	idNumberOfColumns = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getNumberOfColumns", "(I)I");
 	if (idNumberOfColumns == NULL)
@@ -681,7 +726,7 @@ jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int re
 		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.getNumberOfColumns method")));
 	}
 	jq_exception_clear();
-	numberOfColumns = (int) (*Jenv)->CallIntMethod(Jenv, conn->JDBCUtilsObject, idNumberOfColumns, resultSetID);
+	numberOfColumns = (int) (*Jenv)->CallIntMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idNumberOfColumns, resultSetID);
 	jq_get_exception();
 	if (numberOfColumns < 0)
 	{
@@ -704,9 +749,8 @@ jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int re
 	jq_get_exception();
 	if (rowArray != NULL)
 	{
-		if(retrieved_attrs != NIL){
-
-			values = (char **) palloc0(tupleDescriptor->natts * sizeof(char *));
+		if (retrieved_attrs != NIL)
+		{
 			for (i = 0; i < retrieved_attrs->length; i++)
 			{
 				int			column_index = retrieved_attrs->elements[i].int_value - 1;
@@ -718,21 +762,6 @@ jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int re
 				{
 					tupleSlot->tts_isnull[column_index] = false;
 					tupleSlot->tts_values[column_index] = jdbc_convert_object_to_datum(pgtype, pgtypmod, obj);
-				}
-			}
-		}else{
-			jsize size = (*Jenv)->GetArrayLength(Jenv, rowArray);
-			memset(tupleSlot->tts_values, 0, sizeof(Datum) * (int)size);
-			memset(tupleSlot->tts_isnull, true, sizeof(bool) * (int)size);
-			ExecClearTuple(tupleSlot);
-			values = (char **) palloc0(size * sizeof(char *));
-			for (i = 0; i < size; i++)
-			{
-				values[i] = jdbc_convert_string_to_cstring((jobject) (*Jenv)->GetObjectArrayElement(Jenv, rowArray, i));
-				if (values[i] != NULL)
-				{
-					tupleSlot->tts_isnull[i] = false;
-					tupleSlot->tts_values[i] = *values[i];
 				}
 			}
 		}
@@ -747,34 +776,33 @@ jq_iterate(Jconn * conn, ForeignScanState * node, List * retrieved_attrs, int re
  * jq_iterate_all_row: Read the all row from the remote server without an existing foreign table
  */
 void
-jq_iterate_all_row(FunctionCallInfo fcinfo, Jconn * conn, TupleDesc tupleDescriptor, int resultSetID)
+jq_iterate_all_row(FunctionCallInfo fcinfo, JDBCUtilsInfo * jdbcUtilsInfo, TupleDesc tupleDescriptor, int resultSetID)
 {
-	ReturnSetInfo	   *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
 
-	jobject				JDBCUtilsObject;
-	jclass				JDBCUtilsClass;
+	jobject		JDBCUtilsObject;
+	jclass		JDBCUtilsClass;
 
-	jmethodID			idResultSet;
-	jmethodID			idNumberOfColumns;
-	jobjectArray		rowArray;
+	jmethodID	idResultSet;
+	jmethodID	idNumberOfColumns;
+	jobjectArray rowArray;
 
-	Tuplestorestate	   *tupstore;
-	HeapTuple			tuple;
+	Tuplestorestate *tupstore;
+	HeapTuple	tuple = NULL;
 
-	MemoryContext		oldcontext;
+	MemoryContext oldcontext;
 
-	Datum			   *values;
-	bool			   *nulls;
+	Datum	   *values;
+	bool	   *nulls;
 
-	int					numberOfColumns;
+	int			numberOfColumns;
 
 	ereport(DEBUG3, (errmsg("In jq_iterate_all_row")));
 
 	oldcontext = MemoryContextSwitchTo(rsinfo->econtext->ecxt_per_query_memory);
 	tupstore = tuplestore_begin_heap(true, false, work_mem);
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
-	jdbc_sig_int_interrupt_check_process();
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
 	idNumberOfColumns = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getNumberOfColumns", "(I)I");
 	if (idNumberOfColumns == NULL)
@@ -782,7 +810,7 @@ jq_iterate_all_row(FunctionCallInfo fcinfo, Jconn * conn, TupleDesc tupleDescrip
 		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.getNumberOfColumns method")));
 	}
 	jq_exception_clear();
-	numberOfColumns = (int) (*Jenv)->CallIntMethod(Jenv, conn->JDBCUtilsObject, idNumberOfColumns, resultSetID);
+	numberOfColumns = (int) (*Jenv)->CallIntMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idNumberOfColumns, resultSetID);
 	jq_get_exception();
 	if (numberOfColumns < 0)
 	{
@@ -849,7 +877,7 @@ jq_iterate_all_row(FunctionCallInfo fcinfo, Jconn * conn, TupleDesc tupleDescrip
 
 
 Jresult *
-jq_exec_prepared(Jconn * conn, const int *paramLengths,
+jq_exec_prepared(JDBCUtilsInfo * jdbcUtilsInfo, const int *paramLengths,
 				 const int *paramFormats, int resultFormat, int resultSetID)
 {
 	jmethodID	idExecPreparedStatement;
@@ -859,7 +887,7 @@ jq_exec_prepared(Jconn * conn, const int *paramLengths,
 
 	ereport(DEBUG3, (errmsg("In jq_exec_prepared")));
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
 	res = (Jresult *) palloc0(sizeof(Jresult));
 	*res = PGRES_FATAL_ERROR;
@@ -871,7 +899,7 @@ jq_exec_prepared(Jconn * conn, const int *paramLengths,
 		ereport(ERROR, (errmsg("Failed to find the JDBCUtils.execPreparedStatement method!")));
 	}
 	jq_exception_clear();
-	(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idExecPreparedStatement, resultSetID);
+	(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idExecPreparedStatement, resultSetID);
 	jq_get_exception();
 
 	/* Return Java memory */
@@ -903,8 +931,8 @@ jq_get_value(const Jresult * res, int tup_num, int field_num)
 }
 
 Jresult *
-jq_prepare(Jconn * conn, const char *query,
-		   const Oid * paramTypes, int *resultSetID)
+jq_prepare(JDBCUtilsInfo * jdbcUtilsInfo, const char *query,
+		   const Oid *paramTypes, int *resultSetID)
 {
 	jmethodID	idCreatePreparedStatement;
 	jstring		statement;
@@ -912,9 +940,9 @@ jq_prepare(Jconn * conn, const char *query,
 	jobject		JDBCUtilsObject;
 	Jresult    *res;
 
-	ereport(DEBUG3, (errmsg("In jq_prepare(%p): %s", conn, query)));
+	ereport(DEBUG3, (errmsg("In jq_prepare(%p): %s", jdbcUtilsInfo, query)));
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
 	res = (Jresult *) palloc0(sizeof(Jresult));
 	*res = PGRES_FATAL_ERROR;
@@ -933,7 +961,7 @@ jq_prepare(Jconn * conn, const char *query,
 	}
 	jq_exception_clear();
 	/* get the resultSetID */
-	*resultSetID = (int) (*Jenv)->CallIntMethod(Jenv, conn->JDBCUtilsObject, idCreatePreparedStatement, statement);
+	*resultSetID = (int) (*Jenv)->CallIntMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idCreatePreparedStatement, statement);
 	jq_get_exception();
 	if (*resultSetID < 0)
 	{
@@ -964,11 +992,11 @@ jq_get_is_null(const Jresult * res, int tup_num, int field_num)
 	return 0;
 }
 
-Jconn *
-jq_connect_db_params(const ForeignServer * server, const UserMapping * user,
+JDBCUtilsInfo *
+jq_connect_db_params(const ForeignServer *server, const UserMapping *user,
 					 const char *const *keywords, const char *const *values)
 {
-	Jconn	   *conn;
+	JDBCUtilsInfo *jdbcUtilsInfo;
 	int			i = 0;
 
 	ereport(DEBUG3, (errmsg("In jq_connect_db_params")));
@@ -984,12 +1012,12 @@ jq_connect_db_params(const ForeignServer * server, const UserMapping * user,
 	}
 	/* Initialize the Java JVM (if it has not been done already) */
 	jdbc_jvm_init(server, user);
-	conn = jdbc_create_JDBC_connection(server, user);
-	if (jq_status(conn) == CONNECTION_BAD)
+	jdbcUtilsInfo = jdbc_create_JDBC_connection(server, user);
+	if (jq_status(jdbcUtilsInfo) == CONNECTION_BAD)
 	{
-		(void) jdbc_connect_db_complete(conn);
+		(void) jdbc_connect_db_complete(jdbcUtilsInfo);
 	}
-	return conn;
+	return jdbcUtilsInfo;
 }
 
 /*
@@ -997,47 +1025,38 @@ jq_connect_db_params(const ForeignServer * server, const UserMapping * user,
  * 0 on failure
  */
 static int
-jdbc_connect_db_complete(Jconn * conn)
+jdbc_connect_db_complete(JDBCUtilsInfo * jdbcUtilsInfo)
 {
 	ereport(DEBUG3, (errmsg("In jdbc_connect_db_complete")));
 	return 0;
 }
 
 ConnStatusType
-jq_status(const Jconn * conn)
+jq_status(const JDBCUtilsInfo * jdbcUtilsInfo)
 {
-	if (!conn)
+	if (!jdbcUtilsInfo)
 	{
 		return CONNECTION_BAD;
 	}
-	return conn->status;
+	return jdbcUtilsInfo->status;
 }
 
 char *
-jq_error_message(const Jconn * conn)
+jq_error_message(const JDBCUtilsInfo * jdbcUtilsInfo)
 {
 	ereport(DEBUG3, (errmsg("In jq_error_message")));
 	return "Unknown Error!";
 }
 
-int
-jq_connection_used_password(const Jconn * conn)
-{
-	ereport(DEBUG3, (errmsg("In jq_connection_used_password")));
-	return 0;
-}
-
 void
-jq_finish(Jconn * conn)
+jq_finish(void)
 {
-	ereport(DEBUG3, (errmsg("In jq_finish for conn=%p", conn)));
 	jdbc_detach_jvm();
-	conn = NULL;
 	return;
 }
 
 int
-jq_server_version(const Jconn * conn)
+jq_server_version(const JDBCUtilsInfo * jdbcUtilsInfo)
 {
 	ereport(DEBUG3, (errmsg("In jq_server_version")));
 	return 0;
@@ -1051,25 +1070,27 @@ jq_result_error_field(const Jresult * res, int fieldcode)
 }
 
 PGTransactionStatusType
-jq_transaction_status(const Jconn * conn)
+jq_transaction_status(const JDBCUtilsInfo * jdbcUtilsInfo)
 {
 	ereport(DEBUG3, (errmsg("In jq_transaction_status")));
 	return PQTRANS_UNKNOWN;
 }
+
 void *
-jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, int resultSetID)
+jq_bind_sql_var(JDBCUtilsInfo * jdbcUtilsInfo, Oid type, int attnum, Datum value, bool *isnull, int resultSetID)
 {
 	jmethodID	idBindPreparedStatement;
 	jclass		JDBCUtilsClass;
 	jobject		JDBCUtilsObject;
-	Jresult	   *res;
+	Jresult    *res;
+	int			nestlevel;
 
 	ereport(DEBUG3, (errmsg("In jq_bind_sql_var")));
 
 	res = (Jresult *) palloc0(sizeof(Jresult));
 	*res = PGRES_FATAL_ERROR;
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
 	attnum++;
 	elog(DEBUG2, "jdbc_fdw : %s %d type=%u ", __func__, attnum, type);
@@ -1083,7 +1104,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 			ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bind method!")));
 		}
 		jq_exception_clear();
-		(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, attnum, resultSetID);
+		(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, attnum, resultSetID);
 		jq_get_exception();
 		*res = PGRES_COMMAND_OK;
 		return NULL;
@@ -1102,7 +1123,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindInt method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 				break;
 			}
@@ -1117,7 +1138,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindInt method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 				break;
 			}
@@ -1132,7 +1153,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindLong method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 				break;
 			}
@@ -1149,7 +1170,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindFloat method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 				break;
 			}
@@ -1164,7 +1185,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindDouble method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 				break;
 			}
@@ -1181,7 +1202,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindDouble method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 				break;
 			}
@@ -1196,7 +1217,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindBoolean method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 				break;
 			}
@@ -1230,7 +1251,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindBytea method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, retArray, len, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, retArray, len, attnum, resultSetID);
 				jq_get_exception();
 				break;
 			}
@@ -1258,7 +1279,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindString method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 
 				/* Return Java memory */
@@ -1285,7 +1306,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindTime method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 
 				/* Return Java memory */
@@ -1312,7 +1333,7 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindTimeTZ method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
 				jq_get_exception();
 
 				/* Return Java memory */
@@ -1326,7 +1347,8 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 				 * Bind as microseconds from Unix Epoch time in UTC time zone
 				 * to avoid being affected by JVM's time zone.
 				 */
-				Timestamp	valueTimestamp = DatumGetTimestamp(value);		/* Already in UTC time zone */
+				Timestamp	valueTimestamp = DatumGetTimestamp(value);	/* Already in UTC time
+																		 * zone */
 				int64		valueMicroSecs = valueTimestamp + POSTGRES_TO_UNIX_EPOCH_USECS;
 
 				idBindPreparedStatement = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "bindTimestampPreparedStatement",
@@ -1336,8 +1358,45 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindTimestamp method!")));
 				}
 				jq_exception_clear();
-				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, valueMicroSecs, attnum, resultSetID);
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, valueMicroSecs, attnum, resultSetID);
 				jq_get_exception();
+				break;
+			}
+		case DATEOID:
+			{
+				/* Bind as text */
+				char	   *outputString = NULL;
+				jstring		dat = NULL;
+				Oid			outputFunctionId = InvalidOid;
+				bool		typeVarLength = false;
+
+				/*
+				 * Make sure the DATE value is unambiguous to the remote
+				 * server
+				 */
+				nestlevel = jdbc_set_transmission_modes();
+
+				getTypeOutputInfo(type, &outputFunctionId, &typeVarLength);
+				outputString = OidOutputFunctionCall(outputFunctionId, value);
+
+				jdbc_reset_transmission_modes(nestlevel);
+
+				dat = (*Jenv)->NewStringUTF(Jenv, outputString);
+				idBindPreparedStatement = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "bindDatePreparedStatement",
+															   "(Ljava/lang/String;II)V");
+				if (idBindPreparedStatement == NULL)
+				{
+					/* Return Java memory */
+					(*Jenv)->DeleteLocalRef(Jenv, dat);
+					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindDatePreparedStatement method!")));
+				}
+				jq_exception_clear();
+				(*Jenv)->CallObjectMethod(Jenv, jdbcUtilsInfo->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				jq_get_exception();
+
+				/* Return Java memory */
+				(*Jenv)->DeleteLocalRef(Jenv, dat);
+
 				break;
 			}
 		default:
@@ -1376,8 +1435,8 @@ jdbc_convert_to_pg(Oid pgtyp, int pgtypmod, char *value)
 
 	stringDatum = CStringGetDatum(value);
 	valueDatum = OidFunctionCall3(typeinput, stringDatum,
-								   ObjectIdGetDatum(pgtyp),
-								   Int32GetDatum(typemod));
+								  ObjectIdGetDatum(pgtyp),
+								  Int32GetDatum(typemod));
 
 	return valueDatum;
 }
@@ -1421,14 +1480,14 @@ jq_get_exception()
 		exceptionMsg = (jstring) (*Jenv)->CallObjectMethod(Jenv, exc, exceptionMsgID);
 		exceptionString = jdbc_convert_string_to_cstring((jobject) exceptionMsg);
 		err_msg = pstrdup(exceptionString);
-		ereport(ERROR, (errmsg("remote server returned an error")));
 		ereport(DEBUG3, (errmsg("%s", err_msg)));
+		ereport(ERROR, (errmsg("remote server returned an error")));
 	}
 	return;
 }
 
 static List *
-jq_get_column_infos(Jconn * conn, char *tablename)
+jq_get_column_infos(JDBCUtilsInfo * jdbcUtilsInfo, char *tablename)
 {
 	jobject		JDBCUtilsObject;
 	jclass		JDBCUtilsClass;
@@ -1459,7 +1518,7 @@ jq_get_column_infos(Jconn * conn, char *tablename)
 	/* Get JDBCUtils */
 	PG_TRY();
 	{
-		jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+		jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 	}
 	PG_CATCH();
 	{
@@ -1468,7 +1527,6 @@ jq_get_column_infos(Jconn * conn, char *tablename)
 	}
 	PG_END_TRY();
 
-	jdbc_sig_int_interrupt_check_process();
 	/* getColumnNames */
 	idGetColumnNames = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getColumnNames", "(Ljava/lang/String;)[Ljava/lang/String;");
 	if (idGetColumnNames == NULL)
@@ -1583,7 +1641,7 @@ jq_get_column_infos(Jconn * conn, char *tablename)
  *
  */
 List *
-jq_get_column_infos_without_key(Jconn * conn, int *resultSetID, int *column_num)
+jq_get_column_infos_without_key(JDBCUtilsInfo * jdbcUtilsInfo, int *resultSetID, int *column_num)
 {
 	jobject		JDBCUtilsObject;
 	jclass		JDBCUtilsClass;
@@ -1611,15 +1669,13 @@ jq_get_column_infos_without_key(Jconn * conn, int *resultSetID, int *column_num)
 	/* Get JDBCUtils */
 	PG_TRY();
 	{
-		jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+		jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 	}
 	PG_CATCH();
 	{
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
-
-	jdbc_sig_int_interrupt_check_process();
 
 	/* getColumnNames by resultSetID */
 	idGetColumnNamesByResultSetID = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getColumnNamesByResultSetID", "(I)[Ljava/lang/String;");
@@ -1699,7 +1755,7 @@ jq_get_column_infos_without_key(Jconn * conn, int *resultSetID, int *column_num)
  * jq_get_table_names
  */
 static List *
-jq_get_table_names(Jconn * conn)
+jq_get_table_names(JDBCUtilsInfo * jdbcUtilsInfo)
 {
 	jobject		JDBCUtilsObject;
 	jclass		JDBCUtilsClass;
@@ -1709,9 +1765,8 @@ jq_get_table_names(Jconn * conn)
 	jsize		numberOfTables;
 	int			i;
 
-	jq_get_JDBCUtils(conn, &JDBCUtilsClass, &JDBCUtilsObject);
+	jq_get_JDBCUtils(jdbcUtilsInfo, &JDBCUtilsClass, &JDBCUtilsObject);
 
-	jdbc_sig_int_interrupt_check_process();
 	idGetTableNames = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "getTableNames", "()[Ljava/lang/String;");
 	if (idGetTableNames == NULL)
 	{
@@ -1738,14 +1793,14 @@ jq_get_table_names(Jconn * conn)
  * jq_get_schema_info
  */
 List *
-jq_get_schema_info(Jconn * conn)
+jq_get_schema_info(JDBCUtilsInfo * jdbcUtilsInfo)
 {
 	List	   *schema_list = NIL;
 	List	   *tableName = NIL;
 	JtableInfo *tableInfo;
 	ListCell   *lc;
 
-	tableName = jq_get_table_names(conn);
+	tableName = jq_get_table_names(jdbcUtilsInfo);
 
 	foreach(lc, tableName)
 	{
@@ -1756,7 +1811,7 @@ jq_get_schema_info(Jconn * conn)
 		if (tmpTableName != NULL)
 		{
 			tableInfo->table_name = tmpTableName;
-			tableInfo->column_info = jq_get_column_infos(conn, tmpTableName);
+			tableInfo->column_info = jq_get_column_infos(jdbcUtilsInfo, tmpTableName);
 			schema_list = lappend(schema_list, tableInfo);
 		}
 	}
@@ -1767,10 +1822,10 @@ jq_get_schema_info(Jconn * conn)
  * jq_get_JDBCUtils: get JDBCUtilsClass and JDBCUtilsObject
  */
 static void
-jq_get_JDBCUtils(Jconn *conn, jclass *JDBCUtilsClass, jobject *JDBCUtilsObject)
+jq_get_JDBCUtils(JDBCUtilsInfo * jdbcUtilsInfo, jclass * JDBCUtilsClass, jobject * JDBCUtilsObject)
 {
 	/* Our object of the JDBCUtils class is on the connection */
-	*JDBCUtilsObject = conn->JDBCUtilsObject;
+	*JDBCUtilsObject = jdbcUtilsInfo->JDBCUtilsObject;
 	if (*JDBCUtilsObject == NULL)
 	{
 		ereport(ERROR, (errmsg("Cannot get the utilsObject from the connection")));
@@ -1780,4 +1835,87 @@ jq_get_JDBCUtils(Jconn *conn, jclass *JDBCUtilsClass, jobject *JDBCUtilsObject)
 	{
 		ereport(ERROR, (errmsg("JDBCUtils class could not be created")));
 	}
+}
+
+/*
+ * jq_inval_callback
+ *		After a change to a pg_foreign_server or pg_user_mapping catalog entry,
+ * 	mark JDBC connections depending on that entry as needing to be remade.
+ */
+void
+jq_inval_callback(int cacheid, uint32 hashvalue)
+{
+	jmethodID	callback = NULL;
+	jclass		JDBCUtilsClass;
+
+	Assert(cacheid == FOREIGNSERVEROID || cacheid == USERMAPPINGOID);
+
+	ereport(DEBUG3, (errmsg("In %s", __func__)));
+
+	if (jvm == NULL)
+		return;
+
+	/* Current thread can be detach before, attach it to modify connection hash */
+	if (Jenv == NULL)
+		jdbc_attach_jvm();
+
+	JDBCUtilsClass = (*Jenv)->FindClass(Jenv, "JDBCUtils");
+
+	/* hashvalue == 0 means a cache reset, must clear all state */
+	if (hashvalue == 0)
+	{
+		/* release all connection */
+		callback = (*Jenv)->GetStaticMethodID(Jenv, JDBCUtilsClass, "finalizeAllConns", "(J)V");
+	}
+	else if (cacheid == FOREIGNSERVEROID)
+	{
+		/* release connections of foreign server hashvalue */
+		callback = (*Jenv)->GetStaticMethodID(Jenv, JDBCUtilsClass, "finalizeAllServerConns", "(J)V");
+	}
+	else if (cacheid == USERMAPPINGOID)
+	{
+		/* release connections of usermapping hashvalue */
+		callback = (*Jenv)->GetStaticMethodID(Jenv, JDBCUtilsClass, "finalizeAllUserMapingConns", "(J)V");
+	}
+
+	if (callback == NULL)
+	{
+		ereport(ERROR, (errmsg("Failed to find the JDBCUtils inval callback method!")));
+	}
+	jq_exception_clear();
+	(*Jenv)->CallStaticVoidMethod(Jenv, JDBCUtilsClass, callback, (jlong) hashvalue);
+	jq_get_exception();
+
+	jdbc_detach_jvm();
+	Jenv = NULL;
+}
+
+/*
+ * jq_release_all_result_sets
+ *		release all cached result set
+ */
+void
+jq_release_all_result_sets(void)
+{
+	jmethodID	methodId = NULL;
+	jclass		JDBCUtilsClass;
+
+	if (jvm == NULL)
+		return;
+
+	/* Current thread can be detach before, attach it to clear all cached resultsets */
+	if (Jenv == NULL)
+		jdbc_attach_jvm();
+
+	JDBCUtilsClass = (*Jenv)->FindClass(Jenv, "JDBCUtils");
+
+	/* release all cached result set */
+	methodId = (*Jenv)->GetStaticMethodID(Jenv, JDBCUtilsClass, "finalizeAllResultSet", "()V");
+
+	jq_exception_clear();
+	(*Jenv)->CallStaticVoidMethod(Jenv, JDBCUtilsClass, methodId);
+	jq_get_exception();
+
+	jdbc_detach_jvm();
+	Jenv = NULL;
 }

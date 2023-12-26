@@ -91,6 +91,11 @@ The || operator as a concatenation operator is standard SQL, however in MySQL, i
 #### Timestamp range
 The MySQL timestamp range is not the same as the PostgreSQL timestamp range, so be careful if using this type. In MySQL, TIMESTAMP has a range of '1970-01-01 00:00:01' UTC to '2038-01-19 03:14:07' UTC.
 
+#### JDBC connection
+`jdbc_fdw` runs on the Postgres server and uses its IP address to make connections, which can make many trusted requests to the server's network. For example, when trusted local authentication is enabled in the PostgreSQL server, jdbc_fdw can connect to the loopback server (127.0.0.1) with any username (including the root account) without require password.
+So be careful when granting permissions of `FOREIGN SERVER` and `USER MAPPING` to non-supperuser.
+
+Reference
 #### Write-able FDW
 The user can issue an update and delete statement for the foreign table, which has set the primary key option.
 
@@ -101,7 +106,7 @@ Supported platforms
 `jdbc_fdw` was developed on Linux, and should run on any
 reasonably POSIX-compliant system.
 
-`jdbc_fdw` is designed to be compatible with PostgreSQL 10 ~ 15.
+`jdbc_fdw` is designed to be compatible with PostgreSQL 13 ~ 16.
 Java 5 or later is required (Confirmed version is Java OpenJDK 1.8.0).
 
 Installation

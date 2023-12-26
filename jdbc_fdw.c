@@ -26,8 +26,14 @@
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "optimizer/cost.h"
 #include "optimizer/appendinfo.h"
+#include "optimizer/cost.h"
+#if (PG_VERSION_NUM >= 130010 && PG_VERSION_NUM < 140000) || \
+	(PG_VERSION_NUM >= 140007 && PG_VERSION_NUM < 150000) || \
+	(PG_VERSION_NUM >= 150002 && PG_VERSION_NUM < 160000) || \
+	(PG_VERSION_NUM >= 160000)
+#include "optimizer/inherit.h"
+#endif
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
@@ -36,6 +42,7 @@
 #include "optimizer/restrictinfo.h"
 #include "optimizer/tlist.h"
 #include "parser/parsetree.h"
+#include "parser/parse_relation.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
@@ -137,7 +144,7 @@ typedef struct jdbcFdwScanState
 	List	   *retrieved_attrs;	/* list of retrieved attribute numbers */
 
 	/* for remote query execution */
-	Jconn	   *conn;			/* connection for the scan */
+	JDBCUtilsInfo	   *jdbcUtilsInfo;			/* connection for the scan */
 	unsigned int cursor_number; /* quasi-unique ID for my cursor */
 	bool		cursor_exists;	/* have we created the cursor? */
 	int			numParams;		/* number of parameters passed to query */
@@ -173,7 +180,7 @@ typedef struct jdbcFdwModifyState
 	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
 
 	/* for remote query execution */
-	Jconn	   *conn;			/* connection for the scan */
+	JDBCUtilsInfo	   *jdbcUtilsInfo;			/* connection for the scan */
 	bool		is_prepared;	/* name of prepared statement, if created */
 
 
@@ -322,12 +329,11 @@ static void estimate_path_cost_size(PlannerInfo *root,
 									Cost *p_total_cost,
 									char *q_char);
 static void get_remote_estimate(const char *sql,
-								Jconn * conn,
+								JDBCUtilsInfo * jdbcUtilsInfo,
 								double *rows,
 								int *width,
 								Cost *startup_cost,
 								Cost *total_cost);
-static void jdbc_close_cursor(Jconn * conn, unsigned int cursor_number);
 static void jdbc_prepare_foreign_modify(jdbcFdwModifyState * fmstate);
 static bool jdbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel);
 static void jdbc_add_foreign_grouping_paths(PlannerInfo *root,
@@ -353,10 +359,12 @@ static void jdbc_bind_junk_column_value(jdbcFdwModifyState * fmstate,
 										int bindnum);
 
 static void prepTuplestoreResult(FunctionCallInfo fcinfo);
-static Jconn *jdbc_get_conn_by_server_name(char *servername);
-static TupleDesc jdbc_create_descriptor(Jconn *conn, int *resultSetID);
+static JDBCUtilsInfo *jdbc_get_conn_by_server_name(char *servername);
+static TupleDesc jdbc_create_descriptor(JDBCUtilsInfo *jdbcUtilsInfo, int *resultSetID);
 static Oid jdbc_convert_type_name(char *typname);
-
+static ErrorContextCallback *jdbc_register_error_callback(void);
+static void jdbc_remove_error_callback(ErrorContextCallback *errcallback);
+static void jdbc_error_callback(void *arg);
 /*
  * Foreign-data wrapper handler function: return a struct with pointers to my
  * callback routines.
@@ -409,7 +417,7 @@ jdbc_fdw_version(PG_FUNCTION_ARGS)
 Datum
 jdbc_exec(PG_FUNCTION_ARGS)
 {
-	Jconn	*conn		= NULL;
+	JDBCUtilsInfo	*jdbcUtilsInfo		= NULL;
 	char	*servername	= NULL;
 	char	*sql		= NULL;
 
@@ -424,7 +432,7 @@ jdbc_exec(PG_FUNCTION_ARGS)
 		{
 			servername = text_to_cstring(PG_GETARG_TEXT_PP(0));
 			sql = text_to_cstring(PG_GETARG_TEXT_PP(1));
-			conn = jdbc_get_conn_by_server_name(servername);
+			jdbcUtilsInfo = jdbc_get_conn_by_server_name(servername);
 		}
 		else
 		{
@@ -432,7 +440,7 @@ jdbc_exec(PG_FUNCTION_ARGS)
 			elog(ERROR, "jdbc_fdw: wrong number of arguments");
 		}
 
-		if (!conn)
+		if (!jdbcUtilsInfo)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_CONNECTION_DOES_NOT_EXIST),
@@ -442,15 +450,15 @@ jdbc_exec(PG_FUNCTION_ARGS)
 		prepTuplestoreResult(fcinfo);
 
 		/* Execute sql query */
-		res = jq_exec_id(conn, sql, &resultSetID);
+		res = jq_exec_id(jdbcUtilsInfo, sql, &resultSetID);
 
 		if (*res != PGRES_COMMAND_OK)
-			jdbc_fdw_report_error(ERROR, res, conn, false, sql);
+			jdbc_fdw_report_error(ERROR, res, jdbcUtilsInfo, false, sql);
 
 		/* Create temp descriptor */
-		tupleDescriptor = jdbc_create_descriptor(conn, &resultSetID);
+		tupleDescriptor = jdbc_create_descriptor(jdbcUtilsInfo, &resultSetID);
 
-		jq_iterate_all_row(fcinfo, conn, tupleDescriptor, resultSetID);
+		jq_iterate_all_row(fcinfo, jdbcUtilsInfo, tupleDescriptor, resultSetID);
 	}
 	PG_FINALLY();
 	{
@@ -458,15 +466,11 @@ jdbc_exec(PG_FUNCTION_ARGS)
 			jq_clear(res);
 
 		if (resultSetID != 0)
-			jq_release_resultset_id(conn, resultSetID);
+			jq_release_resultset_id(jdbcUtilsInfo, resultSetID);
 
 		tuplestore_donestoring((ReturnSetInfo *) fcinfo->resultinfo->setResult);
 
-		if (conn)
-		{
-			jdbc_release_connection(conn);
-			conn = NULL;
-		}
+		jdbc_release_jdbc_utils_obj();
 	}
 	PG_END_TRY();
 
@@ -506,12 +510,12 @@ prepTuplestoreResult(FunctionCallInfo fcinfo)
  * jdbc_get_conn_by_server_name
  * Get connection by the given server name
  */
-static Jconn *
+static JDBCUtilsInfo *
 jdbc_get_conn_by_server_name(char *servername)
 {
 	ForeignServer *foreign_server = NULL;
 	UserMapping *user_mapping;
-	Jconn *conn = NULL;
+	JDBCUtilsInfo *jdbcUtilsInfo = NULL;
 
 	foreign_server = GetForeignServerByName(servername, false);
 
@@ -521,10 +525,10 @@ jdbc_get_conn_by_server_name(char *servername)
 		Oid userid = GetUserId();
 
 		user_mapping = GetUserMapping(userid, serverid);
-		conn = jdbc_get_connection(foreign_server, user_mapping, false);
+		jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(foreign_server, user_mapping, false);
 	}
 
-	return conn;
+	return jdbcUtilsInfo;
 }
 
 /*
@@ -532,7 +536,7 @@ jdbc_get_conn_by_server_name(char *servername)
  * Create TypleDesc from result set
  */
 static TupleDesc
-jdbc_create_descriptor(Jconn *conn, int *resultSetID)
+jdbc_create_descriptor(JDBCUtilsInfo *jdbcUtilsInfo, int *resultSetID)
 {
 	TupleDesc	desc;
 	List	   *column_info_list;
@@ -540,7 +544,7 @@ jdbc_create_descriptor(Jconn *conn, int *resultSetID)
 	int			column_num = 0;
 	int			att_num = 0;
 
-	column_info_list = jq_get_column_infos_without_key(conn, resultSetID, &column_num);
+	column_info_list = jq_get_column_infos_without_key(jdbcUtilsInfo, resultSetID, &column_num);
 
 	desc = CreateTemplateTupleDesc(column_num);
 	foreach(column_lc, column_info_list)
@@ -590,9 +594,14 @@ jdbcGetForeignRelSize(PlannerInfo *root,
 {
 	jdbcFdwRelationInfo *fpinfo;
 	ListCell   *lc;
+#if PG_VERSION_NUM < 160000
 	RangeTblEntry *rte = planner_rt_fetch(baserel->relid, root);
 	Oid			userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
-	Jconn	   *conn;
+#else
+	Oid			userid = OidIsValid(baserel->userid) ? baserel->userid : GetUserId();
+#endif
+	JDBCUtilsInfo	   *jdbcUtilsInfo;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	/* TODO: remove this functionality and support for remote statistics */
 	ereport(DEBUG3, (errmsg("In jdbcGetForeignRelSize")));
@@ -648,7 +657,7 @@ jdbcGetForeignRelSize(PlannerInfo *root,
 	 * user idenfifier for get default indentifier quote from remote server.
 	 */
 	fpinfo->user = GetUserMapping(userid, fpinfo->server->serverid);
-	conn = jdbc_get_connection(fpinfo->server, fpinfo->user, false);
+	jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(fpinfo->server, fpinfo->user, false);
 
 	/*
 	 * Identify which baserestrictinfo clauses can be sent to the remote
@@ -710,7 +719,7 @@ jdbcGetForeignRelSize(PlannerInfo *root,
 		estimate_path_cost_size(root, baserel, NIL,
 								&fpinfo->rows, &fpinfo->width,
 								&fpinfo->startup_cost,
-								&fpinfo->total_cost, conn->q_char);
+								&fpinfo->total_cost, jdbcUtilsInfo->q_char);
 	}
 	else
 	{
@@ -743,8 +752,11 @@ jdbcGetForeignRelSize(PlannerInfo *root,
 		estimate_path_cost_size(root, baserel, NIL,
 								&fpinfo->rows, &fpinfo->width,
 								&fpinfo->startup_cost,
-								&fpinfo->total_cost, conn->q_char);
+								&fpinfo->total_cost, jdbcUtilsInfo->q_char);
 	}
+
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 }
 
 /*
@@ -810,7 +822,8 @@ jdbcGetForeignPlan(PlannerInfo *root,
 	List	   *fdw_scan_tlist = NIL;
 	List	   *fdw_recheck_quals = NIL;
 	bool		has_limit = false;
-	Jconn	   *conn;
+	JDBCUtilsInfo	   *jdbcUtilsInfo;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	ereport(DEBUG3, (errmsg("In jdbcGetForeignPlan")));
 
@@ -932,8 +945,6 @@ jdbcGetForeignPlan(PlannerInfo *root,
 		 */
 		if (outer_plan)
 		{
-			ListCell   *lc;
-
 			/*
 			 * Right now, we only consider grouping and aggregation beyond
 			 * joins. Queries involving aggregates or grouping do not require
@@ -980,7 +991,7 @@ jdbcGetForeignPlan(PlannerInfo *root,
 		}
 	}
 
-	conn = jdbc_get_connection(fpinfo->server, fpinfo->user, false);
+	jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(fpinfo->server, fpinfo->user, false);
 
 	/*
 	 * Build the query string to be sent for execution, and identify
@@ -991,7 +1002,7 @@ jdbcGetForeignPlan(PlannerInfo *root,
 	jdbc_deparse_select_stmt_for_rel(&sql, root, baserel, remote_conds,
 									 best_path->path.pathkeys,
 									 &retrieved_attrs, &params_list, fdw_scan_tlist,
-									 has_limit, false, NIL, NIL, conn->q_char);
+									 has_limit, false, NIL, NIL, jdbcUtilsInfo->q_char);
 
 	ereport(DEBUG3, (errmsg("SQL: %s", sql.data)));
 
@@ -1044,6 +1055,9 @@ jdbcGetForeignPlan(PlannerInfo *root,
 	 * Items in the list must match enum FdwScanPrivateIndex, above.
 	 */
 	fdw_private = list_make3(makeString(sql.data), retrieved_attrs, makeInteger(for_update));
+
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 
 	/*
 	 * Create the ForeignScan node from target list, local filtering
@@ -1135,6 +1149,7 @@ jdbcBeginForeignScan(ForeignScanState *node, int eflags)
 	int			i;
 	ListCell   *lc;
 	int			rtindex;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	ereport(DEBUG3, (errmsg("In jdbcBeginForeignScan")));
 
@@ -1157,9 +1172,19 @@ jdbcBeginForeignScan(ForeignScanState *node, int eflags)
 	if (fsplan->scan.scanrelid > 0)
 		rtindex = fsplan->scan.scanrelid;
 	else
+#if PG_VERSION_NUM < 160000
 		rtindex = bms_next_member(fsplan->fs_relids, -1);
+#else
+		rtindex = bms_next_member(fsplan->fs_base_relids, -1);
+#endif
+
 	rte = rt_fetch(rtindex, estate->es_range_table);
+
+#if PG_VERSION_NUM < 160000
 	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
+#else
+	userid = OidIsValid(fsplan->checkAsUser) ? fsplan->checkAsUser : GetUserId();
+#endif
 
 	/* Get info about foreign table. */
 	fsstate->rel = node->ss.ss_currentRelation;
@@ -1182,10 +1207,9 @@ jdbcBeginForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = jdbc_get_connection(server, user, false);
+	fsstate->jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(server, user, false);
 
 	/* Assign a unique ID for my cursor */
-	fsstate->cursor_number = jdbc_get_cursor_number(fsstate->conn);
 	fsstate->cursor_exists = false;
 
 	/* Get private info created by planner functions. */
@@ -1273,7 +1297,10 @@ jdbcBeginForeignScan(ForeignScanState *node, int eflags)
 		fsstate->param_values = (const char **) palloc0(numParams * sizeof(char *));
 	else
 		fsstate->param_values = NULL;
-	(void) jq_exec_id(fsstate->conn, fsstate->query, &fsstate->resultSetID);
+	(void) jq_exec_id(fsstate->jdbcUtilsInfo, fsstate->query, &fsstate->resultSetID);
+
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 }
 
 /*
@@ -1284,11 +1311,16 @@ static TupleTableSlot *
 jdbcIterateForeignScan(ForeignScanState *node)
 {
 	jdbcFdwScanState *fsstate = (jdbcFdwScanState *) node->fdw_state;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	if (!fsstate->cursor_exists)
 		fsstate->cursor_exists = true;
 	ereport(DEBUG3, (errmsg("In jdbcIterateForeignScan")));
-	jq_iterate(fsstate->conn, node, fsstate->retrieved_attrs, fsstate->resultSetID);
+	jq_iterate(fsstate->jdbcUtilsInfo, node, fsstate->retrieved_attrs, fsstate->resultSetID);
+
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
+
 	return node->ss.ss_ScanTupleSlot;
 }
 
@@ -1299,13 +1331,17 @@ static void
 jdbcReScanForeignScan(ForeignScanState *node)
 {
 	jdbcFdwScanState *fsstate = (jdbcFdwScanState *) node->fdw_state;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	ereport(DEBUG3, (errmsg("In jdbcReScanForeignScan")));
 
 	if (!fsstate->cursor_exists || !fsstate->resultSetID > 0)
 		return;
 
-	(void) jq_exec_id(fsstate->conn, fsstate->query, &fsstate->resultSetID);
+	(void) jq_exec_id(fsstate->jdbcUtilsInfo, fsstate->query, &fsstate->resultSetID);
+
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 
 	/* Now force a fresh FETCH. */
 	fsstate->tuples = NULL;
@@ -1330,14 +1366,10 @@ jdbcEndForeignScan(ForeignScanState *node)
 	if (fsstate == NULL)
 		return;
 
-	/* Close the cursor if open, to prevent accumulation of cursors */
-	if (fsstate->cursor_exists)
-		jdbc_close_cursor(fsstate->conn, fsstate->cursor_number);
-	jq_release_resultset_id(fsstate->conn, fsstate->resultSetID);
 	/* Release remote connection */
-	jdbc_release_connection(fsstate->conn);
-	fsstate->conn = NULL;
+	jdbc_release_jdbc_utils_obj();
 
+	fsstate->jdbcUtilsInfo = NULL;
 	/* MemoryContexts will be deleted automatically. */
 }
 
@@ -1452,11 +1484,13 @@ jdbcPlanForeignModify(PlannerInfo *root,
 	List	   *condAttr = NULL;
 	TupleDesc	tupdesc;
 	int			i;
-	Jconn	   *conn;
+	JDBCUtilsInfo	   *jdbcUtilsInfo;
 	ForeignTable *table;
 	ForeignServer *server;
 	UserMapping *user;
-	Oid			userid;
+
+	Oid			userid = InvalidOid;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	initStringInfo(&sql);
 
@@ -1476,9 +1510,20 @@ jdbcPlanForeignModify(PlannerInfo *root,
 	tupdesc = RelationGetDescr(rel);
 	table = GetForeignTable(foreignTableId);
 	server = GetForeignServer(table->serverid);
+#if PG_VERSION_NUM < 160000
 	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
+#else
+	if (rte->perminfoindex != 0)
+	{
+		RTEPermissionInfo *perminfo = getRTEPermissionInfo(root->parse->rteperminfos, rte);
+
+		userid = (perminfo != NULL && OidIsValid(perminfo->checkAsUser))? perminfo->checkAsUser : GetUserId();
+	}
+	else
+		userid = GetUserId();
+#endif
 	user = GetUserMapping(userid, server->serverid);
-	conn = jdbc_get_connection(server, user, false);
+	jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(server, user, false);
 
 	/*
 	 * In an INSERT, we transmit all columns that are defined in the foreign
@@ -1501,20 +1546,29 @@ jdbcPlanForeignModify(PlannerInfo *root,
 	}
 	else if (operation == CMD_UPDATE)
 	{
-		Bitmapset  *tmpset;
+		Bitmapset  *allUpdatedCols;
 		AttrNumber	col;
+#if (PG_VERSION_NUM >= 130010 && PG_VERSION_NUM < 140000) || \
+	(PG_VERSION_NUM >= 140007 && PG_VERSION_NUM < 150000) || \
+	(PG_VERSION_NUM >= 150002 && PG_VERSION_NUM < 160000) || \
+	(PG_VERSION_NUM >= 160000)
+		RelOptInfo *rel = find_base_rel(root, resultRelation);
 
-#if (PG_VERSION_NUM >= 120000)
-		tmpset = bms_union(rte->updatedCols, rte->extraUpdatedCols);
+		/* get_rel_all_updated_cols is supported from pg 13.10, 14.7, 15.2 and 16 */
+		allUpdatedCols = get_rel_all_updated_cols(root, rel);
+		col = -1;
+		while ((col = bms_next_member(allUpdatedCols, col)) >= 0)
 #else
-		tmpset = bms_copy(rte->updatedCols);
+		allUpdatedCols = bms_union(rte->updatedCols, rte->extraUpdatedCols);
+		while ((col = bms_first_member(allUpdatedCols)) >= 0)
 #endif
-		while ((col = bms_first_member(tmpset)) >= 0)
 		{
-			col += FirstLowInvalidHeapAttributeNumber;
-			if (col <= InvalidAttrNumber)	/* shouldn't happen */
+			/* bit numbers are offset by FirstLowInvalidHeapAttributeNumber */
+			AttrNumber	attno = col + FirstLowInvalidHeapAttributeNumber;
+
+			if (attno <= InvalidAttrNumber)	/* shouldn't happen */
 				elog(ERROR, "system-column update is not supported");
-			targetAttrs = lappend_int(targetAttrs, col);
+			targetAttrs = lappend_int(targetAttrs, attno);
 		}
 	}
 
@@ -1559,15 +1613,15 @@ jdbcPlanForeignModify(PlannerInfo *root,
 		case CMD_INSERT:
 			jdbc_deparse_insert_sql(&sql, root, resultRelation, rel,
 									targetAttrs, returningList,
-									&retrieved_attrs, conn->q_char);
+									&retrieved_attrs, jdbcUtilsInfo->q_char);
 			break;
 		case CMD_UPDATE:
 			jdbc_deparse_update_sql(&sql, root, resultRelation, rel,
-									targetAttrs, condAttr, conn->q_char);
+									targetAttrs, condAttr, jdbcUtilsInfo->q_char);
 			break;
 		case CMD_DELETE:
 			jdbc_deparse_delete_sql(&sql, root, resultRelation, rel,
-									condAttr, conn->q_char);
+									condAttr, jdbcUtilsInfo->q_char);
 			break;
 		default:
 			elog(ERROR, "unexpected operation: %d", (int) operation);
@@ -1580,6 +1634,8 @@ jdbcPlanForeignModify(PlannerInfo *root,
 	table_close(rel, NoLock);
 #endif
 
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 	/*
 	 * Build the fdw_private list that will be available to the executor.
 	 * Items in the list must match enum FdwModifyPrivateIndex, above.
@@ -1606,7 +1662,9 @@ jdbcBeginForeignModify(ModifyTableState *mtstate,
 	Oid			typefnoid = InvalidOid;
 	bool		isvarlena = false;
 	ListCell   *lc;
+#if PG_VERSION_NUM < 160000
 	RangeTblEntry *rte;
+#endif
 	Oid			userid;
 	ForeignServer *server;
 	UserMapping *user;
@@ -1614,6 +1672,7 @@ jdbcBeginForeignModify(ModifyTableState *mtstate,
 	Oid			foreignTableId = InvalidOid;
 	int			i;
 	Plan	   *subplan;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	ereport(DEBUG3, (errmsg("In jdbcBeginForeignModify")));
 
@@ -1624,12 +1683,17 @@ jdbcBeginForeignModify(ModifyTableState *mtstate,
 	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
 		return;
 
+#if PG_VERSION_NUM < 160000
 	/*
 	 * Identify which user to do the remote access as.  This should match what
 	 * ExecCheckRTEPerms() does.
 	 */
 	rte = rt_fetch(resultRelInfo->ri_RangeTableIndex, estate->es_range_table);
 	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
+#else
+	/* Identify which user to do the remote access as. */
+	userid = ExecGetResultRelCheckAsUser(resultRelInfo, estate);
+#endif
 
 	foreignTableId = RelationGetRelid(rel);
 #if (PG_VERSION_NUM >= 140000)
@@ -1648,7 +1712,7 @@ jdbcBeginForeignModify(ModifyTableState *mtstate,
 	fmstate->rel = rel;
 
 	/* Open connection; report that we'll create a prepared statement. */
-	fmstate->conn = jdbc_get_connection(server, user, true);
+	fmstate->jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(server, user, true);
 	fmstate->is_prepared = false;	/* prepared statement not made yet */
 
 	/* Deconstruct fdw_private data. */
@@ -1707,6 +1771,8 @@ jdbcBeginForeignModify(ModifyTableState *mtstate,
 													 ));
 	}
 
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 }
 
 /*
@@ -1723,6 +1789,7 @@ jdbcExecForeignInsert(EState *estate,
 	int			bindnum = 0;
 	ListCell   *lc;
 	Datum		value = 0;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	ereport(DEBUG3, (errmsg("In jdbcExecForeignInsert")));
 
@@ -1740,7 +1807,7 @@ jdbcExecForeignInsert(EState *estate,
 		bool		isnull;
 
 		value = slot_getattr(slot, attnum + 1, &isnull);
-		jq_bind_sql_var(fmstate->conn, type, bindnum, value, &isnull, fmstate->resultSetID);
+		jq_bind_sql_var(fmstate->jdbcUtilsInfo, type, bindnum, value, &isnull, fmstate->resultSetID);
 		bindnum++;
 	}
 
@@ -1750,17 +1817,19 @@ jdbcExecForeignInsert(EState *estate,
 	 * We don't use a PG_TRY block here, so be careful not to throw error
 	 * without releasing the Jresult.
 	 */
-	res = jq_exec_prepared(fmstate->conn,
+	res = jq_exec_prepared(fmstate->jdbcUtilsInfo,
 						   NULL,
 						   NULL,
 						   0,
 						   fmstate->resultSetID);
 	if (*res !=
 		(fmstate->has_returning ? PGRES_TUPLES_OK : PGRES_COMMAND_OK))
-		jdbc_fdw_report_error(ERROR, res, fmstate->conn, true, fmstate->query);
+		jdbc_fdw_report_error(ERROR, res, fmstate->jdbcUtilsInfo, true, fmstate->query);
 
 	jq_clear(res);
 
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 	return slot;
 }
 
@@ -1780,6 +1849,7 @@ jdbcExecForeignUpdate(EState *estate,
 	ListCell   *lc = NULL;
 	int			bindnum = 0;
 	int			i = 0;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	ereport(DEBUG3, (errmsg("In jdbcExecForeignUpdate")));
 
@@ -1801,8 +1871,7 @@ jdbcExecForeignUpdate(EState *estate,
 		type = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->atttypid;
 
 		value = slot_getattr(slot, attnum, &is_null);
-
-		jq_bind_sql_var(fmstate->conn, type, bindnum, value, &is_null, fmstate->resultSetID);
+		jq_bind_sql_var(fmstate->jdbcUtilsInfo, type, bindnum, value, &is_null, fmstate->resultSetID);
 		bindnum++;
 		i++;
 	}
@@ -1821,20 +1890,22 @@ jdbcExecForeignUpdate(EState *estate,
 	 * We don't use a PG_TRY block here, so be careful not to throw error
 	 * without releasing the Jresult.
 	 */
-	res = jq_exec_prepared(fmstate->conn,
+	res = jq_exec_prepared(fmstate->jdbcUtilsInfo,
 						   NULL,
 						   NULL,
 						   0,
 						   fmstate->resultSetID);
 	if (*res !=
 		(fmstate->has_returning ? PGRES_TUPLES_OK : PGRES_COMMAND_OK))
-		jdbc_fdw_report_error(ERROR, res, fmstate->conn, true, fmstate->query);
+		jdbc_fdw_report_error(ERROR, res, fmstate->jdbcUtilsInfo, true, fmstate->query);
 
 	/* And clean up */
 	jq_clear(res);
 
 	MemoryContextReset(fmstate->temp_cxt);
 
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 	/* Return NULL if nothing was updated on the remote end */
 	return slot;
 }
@@ -1852,6 +1923,7 @@ jdbcExecForeignDelete(EState *estate,
 	Relation	rel = resultRelInfo->ri_RelationDesc;
 	Oid			foreignTableId = RelationGetRelid(rel);
 	Jresult    *res;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	ereport(DEBUG3, (errmsg("In jdbcExecForeignDelete")));
 
@@ -1869,19 +1941,22 @@ jdbcExecForeignDelete(EState *estate,
 	 * We don't use a PG_TRY block here, so be careful not to throw error
 	 * without releasing the Jresult.
 	 */
-	res = jq_exec_prepared(fmstate->conn,
+	res = jq_exec_prepared(fmstate->jdbcUtilsInfo,
 						   NULL,
 						   NULL,
 						   0,
 						   fmstate->resultSetID);
 	if (*res !=
 		(fmstate->has_returning ? PGRES_TUPLES_OK : PGRES_COMMAND_OK))
-		jdbc_fdw_report_error(ERROR, res, fmstate->conn, true, fmstate->query);
+		jdbc_fdw_report_error(ERROR, res, fmstate->jdbcUtilsInfo, true, fmstate->query);
 
 	/* And clean up */
 	jq_clear(res);
 
 	MemoryContextReset(fmstate->temp_cxt);
+
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
 
 	/* Return NULL if nothing was deleted on the remote end */
 	return slot;
@@ -1924,7 +1999,7 @@ jdbc_bind_junk_column_value(jdbcFdwModifyState * fmstate,
 				typeoid = att->atttypid;
 
 				/* Bind qual */
-				jq_bind_sql_var(fmstate->conn, typeoid, bindnum, value, &is_null, fmstate->resultSetID);
+				jq_bind_sql_var(fmstate->jdbcUtilsInfo, typeoid, bindnum, value, &is_null, fmstate->resultSetID);
 				bindnum++;
 			}
 		}
@@ -1952,8 +2027,8 @@ jdbcEndForeignModify(EState *estate,
 	}
 
 	/* Release remote connection */
-	jdbc_release_connection(fmstate->conn);
-	fmstate->conn = NULL;
+	jdbc_release_jdbc_utils_obj();
+	fmstate->jdbcUtilsInfo = NULL;
 }
 
 /*
@@ -2147,10 +2222,10 @@ jdbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel)
 			 */
 			foreach(l, aggvars)
 			{
-				Expr	   *expr = (Expr *) lfirst(l);
+				Expr	   *aggref = (Expr *) lfirst(l);
 
-				if (IsA(expr, Aggref))
-					tlist = add_to_flat_tlist(tlist, list_make1(expr));
+				if (IsA(aggref, Aggref))
+					tlist = add_to_flat_tlist(tlist, list_make1(aggref));
 			}
 		}
 
@@ -2164,7 +2239,6 @@ jdbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel)
 	if (fpinfo->local_conds)
 	{
 		List	   *aggvars = NIL;
-		ListCell   *lc;
 
 		foreach(lc, fpinfo->local_conds)
 		{
@@ -2704,7 +2778,7 @@ estimate_path_cost_size(PlannerInfo *root,
 		List	   *local_join_conds;
 		StringInfoData sql;
 		List	   *retrieved_attrs;
-		Jconn	   *conn;
+		JDBCUtilsInfo	   *jdbcUtilsInfo;
 		Selectivity local_sel;
 		QualCost	local_cost;
 		List	   *fdw_scan_tlist = NIL;
@@ -2746,10 +2820,10 @@ estimate_path_cost_size(PlannerInfo *root,
 										 remote_join_conds, q_char);
 
 		/* Get the remote estimate */
-		conn = jdbc_get_connection(fpinfo->server, fpinfo->user, false);
-		get_remote_estimate(sql.data, conn, &rows, &width,
+		jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(fpinfo->server, fpinfo->user, false);
+		get_remote_estimate(sql.data, jdbcUtilsInfo, &rows, &width,
 							&startup_cost, &total_cost);
-		jdbc_release_connection(conn);
+		jdbc_release_jdbc_utils_obj();
 
 		retrieved_rows = rows;
 
@@ -2830,7 +2904,7 @@ estimate_path_cost_size(PlannerInfo *root,
  * be an EXPLAIN command.
  */
 static void
-get_remote_estimate(const char *sql, Jconn * conn,
+get_remote_estimate(const char *sql, JDBCUtilsInfo * jdbcUtilsInfo,
 					double *rows, int *width,
 					Cost *startup_cost, Cost *total_cost)
 {
@@ -2846,9 +2920,9 @@ get_remote_estimate(const char *sql, Jconn * conn,
 		/*
 		 * Execute EXPLAIN remotely.
 		 */
-		res = jq_exec(conn, sql);
+		res = jq_exec(jdbcUtilsInfo, sql);
 		if (*res != PGRES_TUPLES_OK)
-			jdbc_fdw_report_error(ERROR, res, conn, false, sql);
+			jdbc_fdw_report_error(ERROR, res, jdbcUtilsInfo, false, sql);
 
 		/*
 		 * Extract cost numbers for topmost plan node.  Note we search for a
@@ -2935,42 +3009,13 @@ jdbc_reset_transmission_modes(int nestlevel)
 }
 
 /*
- * Utility routine to close a cursor.
- */
-static void
-jdbc_close_cursor(Jconn * conn, unsigned int cursor_number)
-{
-	char		sql[64];
-	Jresult    *res;
-
-	/* TODO: Make sure I don't need this at all */
-	return;
-
-	snprintf(sql, sizeof(sql), "CLOSE c%u", cursor_number);
-
-	/*
-	 * We don't use a PG_TRY block here, so be careful not to throw error
-	 * without releasing the Jresult.
-	 */
-	res = jq_exec(conn, sql);
-	if (*res != PGRES_COMMAND_OK)
-		jdbc_fdw_report_error(ERROR, res, conn, true, sql);
-	jq_clear(res);
-}
-
-/*
  * jdbc_prepare_foreign_modify Establish a prepared statement for execution
  * of INSERT/UPDATE/DELETE
  */
 static void
 jdbc_prepare_foreign_modify(jdbcFdwModifyState * fmstate)
 {
-	char		prep_name[NAMEDATALEN];
 	Jresult    *res;
-
-	/* Construct name we'll use for the prepared statement. */
-	snprintf(prep_name, sizeof(prep_name), "pgsql_fdw_prep_%u",
-			 jdbc_get_prep_stmt_number(fmstate->conn));
 
 	ereport(DEBUG3, (errmsg("In jdbc_prepare_foreign_modify")));
 
@@ -2984,13 +3029,13 @@ jdbc_prepare_foreign_modify(jdbcFdwModifyState * fmstate)
 	 * We don't use a PG_TRY block here, so be careful not to throw error
 	 * without releasing the Jresult.
 	 */
-	res = jq_prepare(fmstate->conn,
+	res = jq_prepare(fmstate->jdbcUtilsInfo,
 					 fmstate->query,
 					 NULL,
 					 &fmstate->resultSetID);
 
 	if (*res != PGRES_COMMAND_OK)
-		jdbc_fdw_report_error(ERROR, res, fmstate->conn, true, fmstate->query);
+		jdbc_fdw_report_error(ERROR, res, fmstate->jdbcUtilsInfo, true, fmstate->query);
 	jq_clear(res);
 
 	/* This action shows that the prepare has been done. */
@@ -3022,13 +3067,14 @@ jdbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	bool		recreate = false;
 	ForeignServer *server;
 	UserMapping *user;
-	Jconn	   *conn;
+	JDBCUtilsInfo *jdbcUtilsInfo;
 	StringInfoData buf;
 	ListCell   *lc;
 	ListCell   *table_lc;
 	ListCell   *column_lc;
 	List	   *schema_list = NIL;
 	bool		first_column;
+	ErrorContextCallback *errcallback = jdbc_register_error_callback();
 
 	elog(DEBUG1, "jdbc_fdw : %s", __func__);
 
@@ -3047,9 +3093,9 @@ jdbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 
 	server = GetForeignServer(serverOid);
 	user = GetUserMapping(GetUserId(), server->serverid);
-	conn = jdbc_get_connection(server, user, false);
+	jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(server, user, false);
 
-	schema_list = jq_get_schema_info(conn);
+	schema_list = jq_get_schema_info(jdbcUtilsInfo);
 	if (schema_list != NIL)
 	{
 		initStringInfo(&buf);
@@ -3108,6 +3154,10 @@ jdbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 			list_free_deep(commands_drop);
 		}
 	}
+
+	/* Uninstall error context callback. */
+	jdbc_remove_error_callback(errcallback);
+
 	return commands;
 }
 
@@ -3132,4 +3182,42 @@ jdbc_execute_commands(List *cmd_list)
 
 	if (SPI_finish() != SPI_OK_FINISH)
 		elog(WARNING, "SPI_finish failed");
+}
+
+/*
+ * jdbc_register_error_callback
+ *		register error callback to release resource
+ */
+static ErrorContextCallback *
+jdbc_register_error_callback(void)
+{
+	ErrorContextCallback *errcallback = (ErrorContextCallback *) palloc0(sizeof(ErrorContextCallback));
+
+	errcallback->callback = jdbc_error_callback;
+	errcallback->arg = NULL;
+	errcallback->previous = error_context_stack;
+	error_context_stack = errcallback;
+
+	return errcallback;
+}
+
+
+/*
+ * jdbc_remove_error_callback
+ *		remove registered error callback
+ */
+static void
+jdbc_remove_error_callback(ErrorContextCallback *errcallback)
+{
+	error_context_stack = errcallback->previous;
+}
+
+/*
+ * JDBC Callback function which is called when error occured:
+ *	Release resource of JDBCUtils object.
+ */
+static void
+jdbc_error_callback(void *arg)
+{
+	jdbc_release_jdbc_utils_obj();
 }
