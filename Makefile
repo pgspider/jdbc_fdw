@@ -22,10 +22,10 @@ UNAME = $(shell uname)
 TRGTS = JAVAFILES
 
 JAVA_SOURCES = \
-	JDBCUtils.java \
-	JDBCDriverLoader.java \
-	JDBCConnection.java \
-	resultSetInfo.java
+	$(srcdir)/JDBCUtils.java \
+	$(srcdir)/JDBCDriverLoader.java \
+	$(srcdir)/JDBCConnection.java \
+	$(srcdir)/resultSetInfo.java
 
 PG_CPPFLAGS=-D'PKG_LIB_DIR=$(pkglibdir)' -I$(libpq_srcdir)
 
