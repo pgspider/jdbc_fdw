@@ -133,8 +133,8 @@ public class JDBCConnection {
             jdbcDriverClass = jdbcDriverLoader.loadClass(driverClassName);
             jdbcDriver = (Driver) jdbcDriverClass.newInstance();
             jdbcProperties = new Properties();
-            jdbcProperties.put("user", userName);
-            jdbcProperties.put("password", password);
+            if (null != userName && !userName.trim().equals("")) jdbcProperties.put("user", userName);
+            if (null != password && !password.trim().equals("")) jdbcProperties.put("password", password);
             Connection conn = jdbcDriver.connect(url, jdbcProperties);
 
             if (conn == null)
