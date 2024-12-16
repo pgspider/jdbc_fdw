@@ -19,22 +19,26 @@ SHLIB_LINK += -L$(LIBDIR) -ljvm
 
 UNAME = $(shell uname)
 
-TRGTS = JAVAFILES
-
 JAVA_SOURCES = \
 	JDBCUtils.java \
 	JDBCDriverLoader.java \
 	JDBCConnection.java \
 	resultSetInfo.java
 
-PG_CPPFLAGS=-D'PKG_LIB_DIR=$(pkglibdir)' -I$(libpq_srcdir)
+# Generate a list of .class files corresponding to .java files
+JAVA_CLASSES = $(patsubst %.java,%.class,$(JAVA_SOURCES))
 
-JFLAGS = -d $(pkglibdir)
+PG_CPPFLAGS=-D'SHARE_EXT_DIR=$(datadir)/extension' -I$(libpq_srcdir)
 
-all:$(TRGTS)
+# Target to compile all Java source files
+all:$(JAVA_CLASSES)
 
-JAVAFILES:
-	javac $(JFLAGS) $(JAVA_SOURCES)
+# Rules for compiling each .java file into a .class
+%.class: %.java
+	javac $<
+
+# Use DATA_built to install .class files
+DATA_built = $(JAVA_CLASSES)
 
 # the db name is hard-coded in the tests
 override USE_MODULE_DB =

@@ -94,6 +94,14 @@ create table loct1_2 (id int, a int, b text);
 create table loct2_2 (id int, a int, b text);
 
 -- ===================================================================
+-- test rescan
+-- ===================================================================
+DROP TABLE IF EXISTS loct1_rescan CASCADE;
+DROP TABLE IF EXISTS loct2_rescan CASCADE;
+create table loct1_rescan (id int, c1 int);
+create table loct2_rescan (id int, c1 int, c2 text);
+
+-- ===================================================================
 -- test tuple routing for foreign-table partitions
 -- ===================================================================
 DROP TABLE IF EXISTS loct1_3 CASCADE;

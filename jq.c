@@ -32,7 +32,7 @@
 
 #define Str(arg) #arg
 #define StrValue(arg) Str(arg)
-#define STR_PKGLIBDIR StrValue(PKG_LIB_DIR)
+#define STR_SHAREEXTDIR StrValue(SHARE_EXT_DIR)
 /* Number of days from unix epoch time (1970-01-01) to postgres epoch time (2000-01-01) */
 #define POSTGRES_TO_UNIX_EPOCH_DAYS 		(POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE)
 /* POSTGRES_TO_UNIX_EPOCH_DAYS to microseconds */
@@ -352,9 +352,9 @@ jdbc_jvm_init(const ForeignServer *server, const UserMapping *user)
 		vm_args.nOptions = 2;
 
 		if (env_classpath != NULL) {
-			classpath = psprintf("-Djava.class.path=%s" PATH_SEPARATOR "%s", STR_PKGLIBDIR, env_classpath);
+			classpath = psprintf("-Djava.class.path=%s" PATH_SEPARATOR "%s", STR_SHAREEXTDIR, env_classpath);
 		} else {
-			classpath = psprintf("-Djava.class.path=%s", STR_PKGLIBDIR);
+			classpath = psprintf("-Djava.class.path=%s", STR_SHAREEXTDIR);
 		}
 
 

@@ -1,28 +1,16 @@
 #!/bin/bash
 
-GRIDDB_HOME=${HOME}/workplace/griddb-5.1.0
+function clean_docker_img()
+{
+  if [ "$(docker ps -aq -f name=^/${1}$)" ]; then
+    if [ "$(docker ps -aq -f status=exited -f status=created -f name=^/${1}$)" ]; then
+        docker rm ${1}
+    else
+        docker rm $(docker stop ${1})
+    fi
+  fi
+}
 
-if [[ ! -d "${GRIDDB_HOME}" ]]; then
-  echo "GRIDDB_HOME environment variable not set"
-  exit 1
-fi
-
-# Start GridDB server
-export GS_HOME=${GRIDDB_HOME}
-export GS_LOG=${GRIDDB_HOME}/log
-export no_proxy=127.0.0.1
-
-if pgrep -x "gsserver" > /dev/null
-then
-  ${GRIDDB_HOME}/bin/gs_leavecluster -w -f -u admin/testadmin
-  ${GRIDDB_HOME}/bin/gs_stopnode -w -u admin/testadmin
-fi
-sleep 1
-rm -rf ${GS_HOME}/data/* ${GS_LOG}/* ${GS_HOME}/txnlog/*
-echo "Starting GridDB server..."
-sed -i 's/\"clusterName\":.*/\"clusterName\":\"griddbfdwTestCluster\",/' ${GRIDDB_HOME}/conf/gs_cluster.json
-${GRIDDB_HOME}/bin/gs_startnode -w -u admin/testadmin
-${GRIDDB_HOME}/bin/gs_joincluster -w -c griddbfdwTestCluster -u admin/testadmin
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/../griddb/bin/
 make clean && make
@@ -30,7 +18,13 @@ echo "Init data for GridDB..."
 rm /tmp/jdbc/*.data
 cp ../../data/*.data /tmp/jdbc/
 
+# Start docker
+griddb_image='griddb/griddb:5.5.0-centos7'
+griddb_container_name=griddb_svr
+clean_docker_img ${griddb_container_name}
+docker run -d --name ${griddb_container_name} --network="host" -e NOTIFICATION_ADDRESS=239.0.0.1 -e NOTIFICATION_PORT=31999 ${griddb_image}
+
 result="$?"
 if [[ "$result" -eq 0 ]]; then
-	./griddb_init host=239.0.0.1 port=31999 cluster=griddbfdwTestCluster user=admin passwd=testadmin
+  ./griddb_init host=239.0.0.1 port=31999 cluster=dockerGridDB user=admin passwd=admin
 fi

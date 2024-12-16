@@ -106,7 +106,7 @@ Supported platforms
 `jdbc_fdw` was developed on Linux, and should run on any
 reasonably POSIX-compliant system.
 
-`jdbc_fdw` is designed to be compatible with PostgreSQL 13 ~ 16.
+`jdbc_fdw` is designed to be compatible with PostgreSQL 13 ~ 17.
 Java 5 or later is required (Confirmed version is Java OpenJDK 1.8.0).
 
 Installation
@@ -121,15 +121,24 @@ For example, jar file can be found from below:
 [PostgreSQL](https://jdbc.postgresql.org/)
 [GridDB](https://github.com/griddb/jdbc)
 
-1. To build jdbc_fdw, you need to symbolic link the jvm library to your path.
+#### 1. To build jdbc_fdw, you need to symbolic link the jvm library to your path.
 
 ```
 sudo ln -s /usr/lib/jvm/[java version]/jre/lib/amd64/server/libjvm.so /usr/lib64/libjvm.so
 ```
 
-2. Build
+#### 2. Build and install jdbc_fdw
+
+Add a directory of `pg_config` to PATH and build and install `jdbc_fdw`.
+
+```sh
+make USE_PGXS=1
+make install USE_PGXS=1
 ```
-make clean
+
+If you want to build `jdbc_fdw` in a source tree of PostgreSQL, use
+```sh
+make
 make install
 ```
 You may have to change to root/installation privileges before executing 'make install'

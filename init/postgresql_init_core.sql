@@ -5,6 +5,8 @@ DROP TABLE IF EXISTS aggtest;
 DROP TABLE IF EXISTS tenk1;
 DROP TABLE IF EXISTS multi_arg_agg;
 DROP TABLE IF EXISTS pagg_test;
+DROP TABLE IF EXISTS btg_groupby;
+DROP TABLE IF EXISTS group_agg_pk;
 DROP TABLE IF EXISTS int4_tbl;
 DROP TABLE IF EXISTS int4_tmp;
 DROP TABLE IF EXISTS int8_tbl;
@@ -45,6 +47,8 @@ DROP TABLE IF EXISTS string_agg4;
 DROP TABLE IF EXISTS bytea_test_table;
 DROP TABLE IF EXISTS agg_fns_1;
 DROP TABLE IF EXISTS agg_fns_2;
+DROP TABLE IF EXISTS agg_t22;
+DROP TABLE IF EXISTS agg_t23;
 DROP TABLE IF EXISTS delete_test;
 DROP TABLE IF EXISTS nocols;
 DROP TABLE IF EXISTS inserttest;
@@ -120,6 +124,8 @@ CREATE TABLE v(id int PRIMARY KEY, v int4);
 CREATE TABLE btg(id int PRIMARY KEY, p int4, v text, c float8, d float8, e int4);
 CREATE TABLE multi_arg_agg (a int4 PRIMARY KEY, b int, c text);
 CREATE TABLE pagg_test (id serial PRIMARY KEY, x int, y int);
+CREATE TABLE btg_groupby (id serial PRIMARY KEY, x int, y int, z text, w int);
+CREATE TABLE group_agg_pk (id serial PRIMARY KEY, x int, y int, z int, w int, f int);
 CREATE TABLE int4_tbl(id int4 PRIMARY KEY, f1 int4);
 CREATE TABLE int4_tmp(id SERIAL PRIMARY KEY , a int4, b int4);
 CREATE TABLE int8_tbl(id SERIAL PRIMARY KEY, q1 int8, q2 int8);
@@ -225,9 +231,12 @@ CREATE TABLE string_agg4(id int, a text);
 
 CREATE TABLE nocols();
 create table bytea_test_table(id int, v bytea);
-CREATE TABLE agg_fns_1 (id int, a int);
 
+CREATE TABLE agg_fns_1 (id int, a int);
 CREATE TABLE agg_fns_2 (a int, b int, c text);
+
+CREATE TABLE agg_t22 (id int, c1 text);
+CREATE TABLE agg_t23 (id int);
 
 CREATE TABLE delete_test (id SERIAL, a INT, b text);
 

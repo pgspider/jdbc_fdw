@@ -57,7 +57,7 @@
 #include "catalog/pg_user_mapping.h"
 #define Str(arg) #arg
 #define StrValue(arg) Str(arg)
-#define STR_PKGLIBDIR StrValue(PKG_LIB_DIR)
+#define STR_SHAREEXTDIR StrValue(SHARE_EXT_DIR)
 
 #define IS_KEY_COLUMN(A)	((strcmp(A->defname, "key") == 0) && \
 							 (strcmp(strVal(A->arg), "true") == 0))
@@ -68,7 +68,11 @@ PG_MODULE_MAGIC;
 #define DEFAULT_FDW_STARTUP_COST    100.0
 
 /* Default CPU cost to process 1 row (above and beyond cpu_tuple_cost). */
+#if PG_VERSION_NUM >= 170000
+#define DEFAULT_FDW_TUPLE_COST		0.2
+#else
 #define DEFAULT_FDW_TUPLE_COST      0.01
+#endif
 
 
 /*
@@ -89,7 +93,7 @@ enum FdwScanPrivateIndex
 	/* SQL statement to execute remotely (as a String node) */
 	FdwScanPrivateSelectSql,
 	/* Integer list of attribute numbers retrieved by the SELECT */
-	FdwScanPrivateRetrievedAttrs
+	FdwScanPrivateRetrievedAttrs,
 };
 
 /*
@@ -104,7 +108,7 @@ enum FdwPathPrivateIndex
 	/* has-final-sort flag (as a Boolean node) */
 	FdwPathPrivateHasFinalSort,
 	/* has-limit flag (as a Boolean node) */
-	FdwPathPrivateHasLimit
+	FdwPathPrivateHasLimit,
 };
 
 
@@ -126,7 +130,7 @@ enum FdwModifyPrivateIndex
 	/* has-returning flag (as a Boolean node) */
 	FdwModifyPrivateHasReturning,
 	/* Integer list of attribute numbers retrieved by RETURNING */
-	FdwModifyPrivateRetrievedAttrs
+	FdwModifyPrivateRetrievedAttrs,
 };
 
 /*
@@ -468,8 +472,6 @@ jdbc_exec(PG_FUNCTION_ARGS)
 		if (resultSetID != 0)
 			jq_release_resultset_id(jdbcUtilsInfo, resultSetID);
 
-		tuplestore_donestoring((ReturnSetInfo *) fcinfo->resultinfo->setResult);
-
 		jdbc_release_jdbc_utils_obj();
 	}
 	PG_END_TRY();
@@ -790,6 +792,9 @@ jdbcGetForeignPaths(PlannerInfo *root,
 									 NIL,	/* no pathkeys */
 									 baserel->lateral_relids,
 									 NULL,	/* no extra plan */
+#if PG_VERSION_NUM >= 170000
+									 NIL, /* no fdw_restrictinfo list */
+#endif
 									 NULL));	/* no fdw_private data */
 	return;
 }
@@ -1335,7 +1340,7 @@ jdbcReScanForeignScan(ForeignScanState *node)
 
 	ereport(DEBUG3, (errmsg("In jdbcReScanForeignScan")));
 
-	if (!fsstate->cursor_exists || !fsstate->resultSetID > 0)
+	if (!fsstate->cursor_exists || (!fsstate->resultSetID) > 0)
 		return;
 
 	(void) jq_exec_id(fsstate->jdbcUtilsInfo, fsstate->query, &fsstate->resultSetID);
@@ -2394,6 +2399,9 @@ jdbc_add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										  total_cost,
 										  NIL,	/* no pathkeys */
 										  NULL,
+#if PG_VERSION_NUM >= 170000
+										  NIL,	/* no fdw_restrictinfo list */
+#endif
 										  NIL); /* no fdw_private */
 #else
 	grouppath = create_foreignscan_path(root,
@@ -2536,6 +2544,10 @@ jdbc_add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 													   path->total_cost,
 													   path->pathkeys,
 													   NULL,	/* no extra plan */
+#if PG_VERSION_NUM >= 170000
+													   NIL, /* no fdw_restrictinfo
+															 * list */
+#endif
 													   NULL);	/* no fdw_private */
 #else
 				final_path = create_foreignscan_path(root,
@@ -2609,6 +2621,19 @@ jdbc_add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	if (ifpinfo->local_conds)
 		return;
 
+#if PG_VERSION_NUM >= 130000
+	/*
+	 * In PostgreSQL version is v13 or later, If the query has FETCH FIRST .. WITH TIES,
+	 * 1) it must have ORDER BY as well, which is used to determine which additional rows
+	 * tie for the last place in the result set, and 2) ORDER BY must already have been
+	 * determined to be safe to push down before we get here.  Since jdbc_fdw
+	 * does not currently support ORDER BY and FETCH FIRST .. WITH TIES clauses, disable
+	 * pushing the FETCH clause.
+	 */
+	if (parse->limitOption == LIMIT_OPTION_WITH_TIES)
+		return;
+#endif
+
 	/*
 	 * When query contains OFFSET but no LIMIT, do not push down because JDBC
 	 * does not support.
@@ -2663,6 +2688,9 @@ jdbc_add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										   total_cost,
 										   pathkeys,
 										   NULL,	/* no extra plan */
+#if PG_VERSION_NUM >= 170000
+										   NIL, /* no fdw_restrictinfo list */
+#endif
 										   fdw_private);
 #else
 	final_path = create_foreignscan_path(root,

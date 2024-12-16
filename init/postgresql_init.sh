@@ -1,8 +1,8 @@
 #!/bin/sh
 export PDB_PORT="5444"
 export PDB_NAME="testdb"
-export PGS_BIN_DIR="${HOME}/workplace/postgresql-16.0/install"
-export FDW_DIR="${HOME}/workplace/postgresql-16.0/contrib/jdbc_fdw"
+export PGS_BIN_DIR="/home/vagrant/workplace/postgresql-17.0/pgbuild"
+export FDW_DIR="/home/vagrant/workplace/postgresql-17.0/contrib/jdbc_fdw"
 
 cd $PGS_BIN_DIR/bin
 
