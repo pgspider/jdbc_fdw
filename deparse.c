@@ -83,7 +83,7 @@ typedef enum
 {
 	FDW_COLLATE_NONE,			/* expression is of a noncollatable type */
 	FDW_COLLATE_SAFE,			/* collation derives from a foreign Var */
-	FDW_COLLATE_UNSAFE			/* collation derives from something else */
+	FDW_COLLATE_UNSAFE,			/* collation derives from something else */
 } FDWCollateState;
 
 typedef struct foreign_loc_cxt
