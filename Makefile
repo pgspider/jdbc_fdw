@@ -20,10 +20,10 @@ SHLIB_LINK += -L$(LIBDIR) -ljvm
 UNAME = $(shell uname)
 
 JAVA_SOURCES = \
-	JDBCUtils.java \
-	JDBCDriverLoader.java \
-	JDBCConnection.java \
-	resultSetInfo.java
+	$(srcdir)/JDBCUtils.java \
+	$(srcdir)/JDBCDriverLoader.java \
+	$(srcdir)/JDBCConnection.java \
+	$(srcdir)/resultSetInfo.java
 
 # Generate a list of .class files corresponding to .java files
 JAVA_CLASSES = $(patsubst %.java,%.class,$(JAVA_SOURCES))
