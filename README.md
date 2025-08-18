@@ -181,7 +181,7 @@ Note that the path must be absolute path.
 
 - **maxheapsize** as *integer*
   
-  The value of the option shall be set to the maximum heap size of the JVM which is being used in jdbc fdw. It can be set from 1 Mb onwards. This option is used for setting the maximum heap size of the JVM manually.
+  The value of the option shall be set to the maximum heap size in Megabytes of the JVM which is being used in jdbc fdw. It can be set from 1 Mb onwards. This option is used for setting the maximum heap size of the JVM manually.
 
 
 ## CREATE USER MAPPING options
