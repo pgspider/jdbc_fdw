@@ -194,6 +194,7 @@ init_jdbcfdw_options(void)
 		{"querytimeout", ForeignServerRelationId, false},
 		{"jarfile", ForeignServerRelationId, false},
 		{"maxheapsize", ForeignServerRelationId, false},
+		{"catalog", ForeignServerRelationId, false},
 		{"username", UserMappingRelationId, false},
 		{"password", UserMappingRelationId, false},
 		/* use_remote_estimate is available on both server and table */
