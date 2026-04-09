@@ -77,7 +77,7 @@ extern void jq_iterate_all_row(FunctionCallInfo fcinfo, JDBCUtilsInfo * jdbcUtil
 extern List *jq_get_column_infos_without_key(JDBCUtilsInfo * jdbcUtilsInfo, int *resultSetID, int *column_num);
 extern void *jq_bind_sql_var(JDBCUtilsInfo * jdbcUtilsInfo, Oid type, int attnum, Datum value, bool *isnull, int resultSetID);
 extern Datum jdbc_convert_to_pg(Oid pgtyp, int pgtypmod, char *value);
-extern List *jq_get_schema_info(JDBCUtilsInfo * jdbcUtilsInfo);
+extern List *jq_get_schema_info(JDBCUtilsInfo * jdbcUtilsInfo, char *catalog, char *schema);
 extern void jdbc_jvm_init(const ForeignServer *server, const UserMapping *user);
 extern void jq_cancel(JDBCUtilsInfo * jdbcUtilsInfo);
 void		jq_inval_callback(int cacheid, uint32 hashvalue);

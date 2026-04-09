@@ -3123,9 +3123,53 @@ jdbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	user = GetUserMapping(GetUserId(), server->serverid);
 	jdbcUtilsInfo = jdbc_get_jdbc_utils_obj(server, user, false);
 
-	schema_list = jq_get_schema_info(jdbcUtilsInfo);
+	/* Extract catalog from server options if set */
+	{
+		char	   *catalog = NULL;
+		ListCell   *opt_lc;
+
+		foreach(opt_lc, server->options)
+		{
+			DefElem    *def = (DefElem *) lfirst(opt_lc);
+
+			if (strcmp(def->defname, "catalog") == 0)
+				catalog = defGetString(def);
+		}
+
+		schema_list = jq_get_schema_info(jdbcUtilsInfo, catalog, stmt->remote_schema);
+	}
+
 	if (schema_list != NIL)
 	{
+		/* Filter tables based on LIMIT TO / EXCEPT */
+		if (stmt->list_type == FDW_IMPORT_SCHEMA_LIMIT_TO ||
+			stmt->list_type == FDW_IMPORT_SCHEMA_EXCEPT)
+		{
+			List	   *filtered_list = NIL;
+
+			foreach(table_lc, schema_list)
+			{
+				JtableInfo *tmpTableInfo = (JtableInfo *) lfirst(table_lc);
+				bool		found = false;
+				ListCell   *tbl_lc;
+
+				foreach(tbl_lc, stmt->table_list)
+				{
+					RangeVar   *rv = (RangeVar *) lfirst(tbl_lc);
+
+					if (strcmp(rv->relname, tmpTableInfo->table_name) == 0)
+					{
+						found = true;
+						break;
+					}
+				}
+				if ((stmt->list_type == FDW_IMPORT_SCHEMA_LIMIT_TO && found) ||
+					(stmt->list_type == FDW_IMPORT_SCHEMA_EXCEPT && !found))
+					filtered_list = lappend(filtered_list, tmpTableInfo);
+			}
+			schema_list = filtered_list;
+		}
+
 		initStringInfo(&buf);
 		/* schema_list includes tablename and tableinfos */
 		foreach(table_lc, schema_list)
@@ -3165,13 +3209,15 @@ jdbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 				}
 				/* Print column name and type */
 				appendStringInfo(&buf, "%s %s",
-								 columnInfo->column_name,
+								 quote_identifier(columnInfo->column_name),
 								 columnInfo->column_type);
 				/* Add option if the column is rowkey. */
 				if (columnInfo->primary_key)
 					appendStringInfoString(&buf, " OPTIONS (key 'true')");
 			}
-			appendStringInfo(&buf, ") SERVER %s;", quote_identifier(server->servername));
+			appendStringInfo(&buf, ") SERVER %s OPTIONS (table_name '%s');",
+							 quote_identifier(server->servername),
+							 tmpTableInfo->table_name);
 			commands = lappend(commands, pstrdup(buf.data));
 	NEXT_COLUMN:
 			resetStringInfo(&buf);
