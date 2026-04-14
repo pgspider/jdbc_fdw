@@ -21,6 +21,10 @@
 #include "commands/defrem.h"
 #include "commands/explain.h"
 #include "commands/vacuum.h"
+#if (PG_VERSION_NUM >= 180000)
+#include "commands/explain_state.h"
+#include "commands/explain_format.h"
+#endif
 #include "foreign/fdwapi.h"
 #include "funcapi.h"
 #include "miscadmin.h"
@@ -787,6 +791,9 @@ jdbcGetForeignPaths(PlannerInfo *root,
 									 NULL,	/* default pathtarget */
 #endif
 									 fpinfo->rows,
+#if PG_VERSION_NUM >= 180000
+									 0,
+#endif
 									 fpinfo->startup_cost,
 									 fpinfo->total_cost,
 									 NIL,	/* no pathkeys */
@@ -2395,6 +2402,9 @@ jdbc_add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										  grouped_rel,
 										  grouped_rel->reltarget,
 										  rows,
+#if PG_VERSION_NUM >= 180000
+										  0,
+#endif
 										  startup_cost,
 										  total_cost,
 										  NIL,	/* no pathkeys */
@@ -2408,6 +2418,9 @@ jdbc_add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										grouped_rel,
 										root->upper_targets[UPPERREL_GROUP_AGG],
 										rows,
+#if PG_VERSION_NUM >= 180000
+										0,
+#endif
 										startup_cost,
 										total_cost,
 										NIL,	/* no pathkeys */
@@ -2540,6 +2553,9 @@ jdbc_add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 													   path->parent,
 													   path->pathtarget,
 													   path->rows,
+#if PG_VERSION_NUM >= 180000
+													   0,
+#endif
 													   path->startup_cost,
 													   path->total_cost,
 													   path->pathkeys,
@@ -2684,6 +2700,9 @@ jdbc_add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										   input_rel,
 										   root->upper_targets[UPPERREL_FINAL],
 										   rows,
+#if PG_VERSION_NUM >= 180000
+										   0,
+#endif
 										   startup_cost,
 										   total_cost,
 										   pathkeys,
